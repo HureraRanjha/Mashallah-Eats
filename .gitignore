@@ -2,3 +2,5 @@ myapp/venv/
 __pycache__/
 *.py[cod]
 myapp/db.sqlite3
+
+myapp/.env
