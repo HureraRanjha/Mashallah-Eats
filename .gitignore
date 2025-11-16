@@ -4,3 +4,10 @@ __pycache__/
 myapp/db.sqlite3
 
 myapp/.env
+
+# Node.js / Frontend
+node_modules/
+package-lock.json
+.cache/
+build/
+dist/
