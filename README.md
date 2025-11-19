@@ -1,3 +1,3 @@
 # Mashallah-Eats
 
-[Download the PDF](docs/Team A Software Requirements Specification Phase II Report.pdf)
+[Download the PDF](docs/phase2.pdf)
