@@ -7,6 +7,10 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Menu from './pages/Menu';
 import Cart from './pages/Cart';
+import DiscussionBoard from './pages/DiscussionBoard';
+import ManagerDashboard from './pages/ManagerDashboard';
+
+import Chatbox from './components/Chatbox';
 
 function App() {
   
@@ -36,6 +40,7 @@ function App() {
                <li><Link to="/login">Login</Link></li>
                <li><Link to="/menu">Menu</Link></li>
                <li><Link to="/cart">Cart</Link></li>
+               <li><Link to="/discussion">Discussion Board</Link></li>
              </ul>
            </div>
         </nav>
@@ -48,7 +53,12 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/menu" element={<Menu />} />
           <Route path="/cart" element={<Cart />} />
+          <Route path="/discussion" element={<DiscussionBoard />} />
+          <Route path="/manager-dashboard" element={<ManagerDashboard />} />
         </Routes>
+
+        {/* Floating chatbox visible on all pages */}
+        <Chatbox />
 
       </div>
     </Router>
