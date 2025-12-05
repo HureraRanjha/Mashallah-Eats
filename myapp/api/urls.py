@@ -5,5 +5,6 @@ from .views import index, DishListView, LoginUser
 urlpatterns = [
     path("index/", index),   # → /api/index/
     path("browse/", DishListView, name="dishes-list"),
-    path("login/", LoginUser.as_view() , name ="login")
+    path("login/", LoginUser.as_view(), name="login"),
+    path("register/", LoginUser.as_view(), name="register"),
 ]
