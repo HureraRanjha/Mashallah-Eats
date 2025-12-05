@@ -1,0 +1,327 @@
+AI
+-
+enabled
+online
+restaurant order and delivery system
+To
+develop an
+online
+smart (LLM
+-
+based
+, no demand for LLM quality, any free ones available
+from Ollama/Hugging face will do
+)
+restaurant order and delivery system so that the restaurant
+can provide menus of food, customers browse and order the food from the menu,
+and
+delivery
+people of the restaurant deliver the food
+.
+In this system, there are three groups of users:
+1.
+Employees
+:
+a)
+at least two
+chef
+s
+who
+independently
+decide the menus
+and make
+the dish
+;
+b)
+at least two delivery people
+for food delivery
+c)
+O
+ne
+manager who
+proces
+se
+s customer registrations,
+handles customer
+compliments and complaints,
+hire
+s
+/fire
+s
+/
+raise
+s
+/
+cut
+s
+pay for
+chef
+(s)
+a
+nd deliver
+y
+people
+.
+d)
+P
+rovide knowledge about this restaurant
+saved in the local knowledge base
+2.
+Customers:
+a)
+Registered customers who can browse
+/search
+, order
+,
+and
+vote
+(lowest 1 star to
+highest 5 stars)
+food delivered
+(on food and delivery quality
+/manners
+individually)
+; can start/participate
+in
+a discussion topic on
+chef
+s/dishes/deliver
+y
+people.
+b)
+Registered
+customers become VIP af
+ter spending more than $100 or
+making
+3
+orders
+as registered customers
+without outstanding complaints
+. T
+hey will receive
+5
+% disco
+unt o
+n
+their
+ordinary
+orders
+and 1 free delivery for every 3 orders
+, have
+access to specially developed dishes,
+and their complaints/compliments are
+counted twice as important as ordinary ones.
+c)
+Provide opinions and observations as customers
+to the local k
+nowledge base
+3.
+Visitor
+s
+: who can browse the menus
+, ask questions about the food and restaurant
+,
+and
+apply t
+o be registered customers
+.
+System features:
+1.
+Overall
+Provide a GUI
+,
+not necessarily web
+-
+based
+,
+with
+pictures to show the
+descriptions
+of each
+dish
+and price;
+each registered customer/VIP has a password to log
+in
+. W
+hen they
+log in,
+based
+on the history of their prior
+choice
+s
+, different registered customer
+s
+/VIP will
+have different
+most ordered and highest rated item
+s
+. For new customers or visitor
+s, th
+e
+most popular
+dish
+and the
+highest
+-
+rated dishes
+are listed on the
+first
+page
+.
+The picture(s)
+of the most ordered and top
+-
+rated chef(s) (may or may not be the same chef).
+A text area
+(chat box)
+is given for any user to ask questions about the restaurant an
+d food with local
+knowledge.
+2.
+Reputation management
+A c
+ustomer
+can fil
+e complaints/compliments to
+the
+chef
+of the
+food s/he purchased and deliver person who delivered the dish
+or other customers who
+didn’t behave in the discussion forums
+.
+The d
+elivery perso
+n can complain/compliment
+customers s/he delivered
+dishes
+to;
+all
+complaints/compliments
+are handled by the
+manager. The person has the right to dispute the complaint
+;
+the manager made the final
+proj_req.docx
+call to dismiss the compl
+aint or let the
+warning
+stay
+and inform the impacted parties.
+Customers/delivery people whose complaints are decided
+to be
+without merit by the
+manager will receive one
+additional
+warning.
+Registered customers
+with
+3 warnings are
+deregistered. VIPs having 2 warnings are put back to re
+gistered customers (with warnings
+cleared).
+The warnings should
+be displayed
+o
+n the page when the customer
+log
+s
+in.
+3.
+Finance management
+.
+Every customer should deposit some money
+in
+to the system.
+If
+the price of the order is more expensive than the deposited
+money in
+the account, the
+order is rejected
+,
+and
+the custom
+er receives one warning automatically
+for being reckless
+.
+4.
+Human resources
+Customers
+who are kicked out of the system or choose to quit the
+system will be handled by the manager: clear the deposit
+and close the account.
+And
+a
+kicked
+-
+out
+customer is on the blacklist of the restaurant:
+they
+cannot register anymore.
+The chef
+whose dishes received consistently low ratings (<2) or 3 complaints will be
+demoted (
+with a lower
+salary)
+;
+a chef demoted twice i
+s fired. Conversely, a chef whose
+dishes receive high ratings (>4) or 3 compliments
+will receive a bonus
+. One compliment
+can be used to cancel one complaint.
+The delivery
+people are handled the same way.
+The
+delivery people will compete to deliver the orde
+r by bidding
+;
+the manager assigns the
+order
+based on
+bidding results: the one with
+the
+lowest delivery price is generally chosen;
+if the one with
+a
+higher asking price is chosen, the manager should write a memo in the
+system as justification.
+5.
+AI
+-
+based
+customer service
+The system tries to answer the questions from local
+knowledge base, if no answers found, then delegate
+s
+to an LLM.
+If the response to a
+question in the chat box comes from the local knowledge base, the inquirer is asked to
+provide a rating
+. If the rating is 0 (outrageous), the answer will be flagged for the
+manager to check: if the content is really bad, this item will be removed
+,
+and the author
+will not be allowed to provide any answer.
+6.
+Creative feature(s)
+Each
+team comes up with a creativ
+e
+feature of the system to make it
+more exciting
+, e.g., image/object
+-
+based food search
+/segmentation using foundation
+models (YOLO/DINO)
+, voice
+-
+based features, or efficient route planning for delivery
+,
+which is
+worth 15
+% of
+the
+overall score of the final pr
+oject.
