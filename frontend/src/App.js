@@ -1,8 +1,16 @@
-import logo from './logo.svg';
+import React, { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import './App.css';
-import { useEffect } from "react";
+
+// Import your pages (Make sure these files exist!)
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Menu from './pages/Menu';
+import Cart from './pages/Cart';
 
 function App() {
+  
+  // I kept your backend test here so you can still see it in the console
   useEffect(() => {
     fetch("http://127.0.0.1:8000/api/index/")
       .then((res) => res.text())
@@ -12,16 +20,38 @@ function App() {
       .catch((err) => {
         console.error("Error calling backend:", err);
       });
-  }, []); // [] = run once on page load
+  }, []);
+
   return (
-    <div className="min-h-screen bg-base-200 flex items-center justify-center">
-      <div className="flex flex-col gap-4">
-        <button className="btn btn-primary">Test Button</button>
-        <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-          Plain Tailwind Button
-        </button>
+    <Router>
+      <div className="min-h-screen bg-base-200">
+        
+        {/* Navigation Bar Skeleton */}
+        <nav className="navbar bg-base-100 shadow-xl mb-4">
+           <div className="flex-1">
+             <Link to="/" className="btn btn-ghost normal-case text-xl">Mashallah Eats</Link>
+           </div>
+           <div className="flex-none">
+             <ul className="menu menu-horizontal px-1 gap-2">
+               <li><Link to="/login">Login</Link></li>
+               <li><Link to="/menu">Menu</Link></li>
+               <li><Link to="/cart">Cart</Link></li>
+             </ul>
+           </div>
+        </nav>
+
+        {/* This determines which page to show based on the URL */}
+        <Routes>
+          {/* Default to Menu or a Home page */}
+          <Route path="/" element={<Menu />} /> 
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/menu" element={<Menu />} />
+          <Route path="/cart" element={<Cart />} />
+        </Routes>
+
       </div>
-    </div>
+    </Router>
   );
 }
 
