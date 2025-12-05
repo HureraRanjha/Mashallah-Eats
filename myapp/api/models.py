@@ -102,7 +102,7 @@ class CustomerProfile(models.Model):
             self.warnings_count -= 1
             self.save()
         return self.warnings_count
-
+ 
     def track_free_delivery(self, order):
         """
         Track VIP free deliveries (1 free per 3 orders).
