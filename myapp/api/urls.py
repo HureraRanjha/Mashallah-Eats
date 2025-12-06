@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import index, DishListView, LoginUser, Discussions, create_reply, create_topic, order_food, food_review
+from .views import index, DishListView, LoginUser, Discussions, create_reply, create_topic, order_food, food_review, add_menu
 
 
 urlpatterns = [
@@ -11,5 +11,6 @@ urlpatterns = [
     path("reply/", create_reply, name="reply"),
     path("topic/", create_topic, name="topic"),
     path("order/", order_food, name="order"),
-    path("review_food/", food_review, name="review_food")
+    path("review_food/", food_review, name="review_food"),
+    path("add_item/", add_menu, name="add_item")
 ]
