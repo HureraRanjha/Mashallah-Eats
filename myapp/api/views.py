@@ -10,7 +10,8 @@ from .serializers import (
     DiscussionPostSerializer,
     OrderSerializer,
     ItemSerializer,
-    FoodReviewSerializer
+    FoodReviewSerializer,
+    AddMenuSerializer
 )
 
 from rest_framework.decorators import api_view
@@ -132,6 +133,29 @@ def order_food(request):
 @csrf_exempt
 def food_review(request):
     serializer = FoodReviewSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=201)
+
+    return Response(serializer.errors, status=400)
+
+
+@api_view(["POST"])
+@csrf_exempt
+def add_menu(request):
+    user = request.user
+    profile = user.userprofile
+    
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    if profile.user_type != "chef":
+        return Response({"error": "Only chefs can add menu items"}, status=403)
+    
+    chef_profile = profile.chef
+    data = request.data.copy()
+    data["chef"] = chef_profile.id
+
+    serializer = AddMenuSerializer(data=data)
     if serializer.is_valid():
         serializer.save()
         return Response(serializer.data, status=201)
