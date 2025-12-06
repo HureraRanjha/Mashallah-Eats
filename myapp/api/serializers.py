@@ -35,3 +35,8 @@ class FoodReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = FoodRating
         fields = "__all__"        
+
+class AddMenuSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MenuItem
+        fields = "__all__"        
