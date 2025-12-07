@@ -35,6 +35,7 @@ def index(request):
 def DishListView(request):
     user = request.user
     warnings = None
+    profile = None 
 
     if user.is_authenticated and hasattr(user, "userprofile"):
         profile = user.userprofile
@@ -44,7 +45,11 @@ def DishListView(request):
                 warnings = customer.warnings_count
 
     items = MenuItem.objects.all()
-    serializer = MenuItemSerializer(items, many=True)
+    non_vip_items = MenuItem.objects.filter(is_vip_exclusive=False)
+    if profile and profile.user_type == "vip":
+        serializer = MenuItemSerializer(items, many=True)
+    else:
+        serializer = MenuItemSerializer(non_vip_items, many=True)
 
     return Response({
         "items": serializer.data,
