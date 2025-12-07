@@ -3,20 +3,9 @@ from django.http import HttpResponse
 from django.contrib.auth.views import LoginView
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.models import User
-from .models import (
-    MenuItem,
-    DiscussionTopic,
-    DiscussionPost,
-    Order,
-    OrderItem,
-    FoodRating,
-    DeliveryRating,
-    DeliveryBid,
-    DeliveryAssignment,
-    UserProfile
-)
 from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, DeliveryBid, DeliveryAssignment, Order, FoodRating, DeliveryRating, UserProfile, CustomerProfile, Transaction
 import stripe
+from decimal import Decimal
 from django.conf import settings
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -99,10 +88,12 @@ def create_topic(request):
 @csrf_exempt
 def order_food(request):
     data = request.data
-
+    user = request.user
+    profile = user.userprofile
+    customer = profile.customerprofile
     # STEP 1 — Validate and create the Order (temporary total = 0)
     order_serializer = OrderSerializer(data={
-        "customer": data["customer_id"],
+        "customer": customer.id,
         "total_price": 0
     })
 
@@ -138,13 +129,16 @@ def order_food(request):
         })
 
     # STEP 3 — Update the order total
-    order.total_price = total_price
-    order.save()
+    profile = user.userprofile
+    if profile.user_type =="vip":
+        total_price = total_price * Decimal("0.95")
+        order.total_price = total_price
+        order.save()
 
     return Response({
         "order_id": order.id,
-        "customer_id": data["customer_id"],
-        "total_price": str(total_price),
+        "customer_id": customer.id,
+        "total_price": str(total_price.normalize()),
         "items": created_items,
         "status": order.status
     })
