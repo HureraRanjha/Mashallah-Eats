@@ -2,8 +2,8 @@ from django.shortcuts import render, redirect
 from django.http import HttpResponse
 from django.contrib.auth.views import LoginView
 from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.models import User
 
-from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, DeliveryBid, DeliveryAssignment, Order
 from .serializers import (
     MenuItemSerializer,
     DiscussionTopicSerializer,
@@ -15,6 +15,7 @@ from .serializers import (
     DeliveryBidSerializer,
     DeliveryAssignmentSerializer,
     OrderWithBidsSerializer
+    DeliveryReviewSerializer
 )
 
 from rest_framework.decorators import api_view
@@ -137,10 +138,48 @@ def order_food(request):
 def food_review(request):
     serializer = FoodReviewSerializer(data=request.data)
     if serializer.is_valid():
-        serializer.save()
+        review = serializer.save()
+        order_item = review.order_item
+        menu_item = order_item.menu_item
+        ratings = FoodRating.objects.filter(order_item__menu_item=menu_item)
+
+        num_ratings = 0
+        total_sum = 0
+
+        for r in ratings:
+            num_ratings += 1
+            total_sum += r.rating
+
+        if num_ratings > 0:
+            average = total_sum / num_ratings
+        else:
+            average = 0
+        menu_item.average_rating = average
+        menu_item.total_orders = menu_item.total_orders + 1
+        menu_item.save()
+        return Response(serializer.data, status=201)
+    return Response(serializer.errors, status=400)
+
+@api_view(["POST"])
+def delivery_rating(request):
+    serializer = DeliveryReviewSerializer(data=request.data)
+    if serializer.is_valid():
+        review = serializer.save()
+        delivery_person = review.order.delivery_person
+        ratings = DeliveryRating.objects.filter(order__delivery_person=delivery_person)
+
+        # compute average
+        total = sum(r.rating for r in ratings)
+        count = ratings.count()
+        avg = total / count
+
+        delivery_person.average_rating = avg
+        delivery_person.save()
+
         return Response(serializer.data, status=201)
 
     return Response(serializer.errors, status=400)
+
 
 
 @api_view(["POST"])
@@ -148,7 +187,7 @@ def food_review(request):
 def add_menu(request):
     user = request.user
     profile = user.userprofile
-    
+
     if not user.is_authenticated:
         return Response({"error": "Authentication required"}, status=401)
     if profile.user_type != "chef":
@@ -164,6 +203,10 @@ def add_menu(request):
         return Response(serializer.data, status=201)
 
     return Response(serializer.errors, status=400)
+
+
+
+
 
 class LoginUser(LoginView):
     template_name = "login.html"
@@ -246,3 +289,35 @@ def assign_delivery(request):
     order.save()
 
     return Response({"message": "Delivery assigned", "order_id": order_id}, status=201)
+def RegisterUser(request):
+    username = request.data.get("username")
+    email = request.data.get("email")
+    password = request.data.get("password")
+    confirm  = request.data.get("confirm_password")
+
+    if not username or not password or not confirm:
+        return Response({"error": "Missing required fields"}, status=400)
+    
+    if password != confirm:
+        return Response({"error": "Passwords do not match"}, status=400)
+    
+    user = User(username=username, email=email)
+    user.set_password(password)
+    user.save()
+
+    
+    UserProfile.objects.create(
+        user=user,
+        user_type="registered"
+    )
+
+    return Response({
+    "message": "User registered successfully",
+    "user": {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email
+    }
+    }, status=201)
+
+#
