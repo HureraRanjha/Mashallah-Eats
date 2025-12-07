@@ -17,5 +17,4 @@ urlpatterns = [
     path("bids/", get_delivery_bids, name="get_bids"),
     path("assign_delivery/", assign_delivery, name="assign_delivery"),
     path("review_driver/", delivery_rating, name="review_Driver"),
-
 ]

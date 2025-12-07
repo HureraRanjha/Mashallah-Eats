@@ -3,8 +3,19 @@ from django.http import HttpResponse
 from django.contrib.auth.views import LoginView
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.models import User
-
-from .serializers import (
+from .models import (
+    MenuItem,
+    DiscussionTopic,
+    DiscussionPost,
+    Order,
+    OrderItem,
+    FoodRating,
+    DeliveryRating,
+    DeliveryBid,
+    DeliveryAssignment,
+    UserProfile
+)
+from .serializers import(
     MenuItemSerializer,
     DiscussionTopicSerializer,
     DiscussionPostSerializer,
@@ -14,8 +25,8 @@ from .serializers import (
     AddMenuSerializer,
     DeliveryBidSerializer,
     DeliveryAssignmentSerializer,
-    OrderWithBidsSerializer
-    DeliveryReviewSerializer
+    OrderWithBidsSerializer,
+    DeliveryReviewSerializer,
 )
 
 from rest_framework.decorators import api_view
@@ -219,7 +230,7 @@ def create_delivery_bid(request):
         return Response({"error": "Authentication required"}, status=401)
     
     profile = user.userprofile
-    if profile.user_type != "delivery":
+    if profile.user_type !="manager":
         return Response({"error": "Only delivery personnel can bid"}, status=403)
     
     delivery_profile = profile.deliveryperson
