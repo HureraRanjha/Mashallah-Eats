@@ -129,18 +129,37 @@ def order_food(request):
         })
 
     # STEP 3 — Update the order total
-    profile = user.userprofile
-    if profile.user_type =="vip":
-        total_price = total_price * Decimal("0.95")
-        order.total_price = total_price
-        order.save()
+    orders = Order.objects.filter(customer=customer)
+    order_number = orders.count() + 1
+    DELIVERY_FEE = Decimal("2.50")
+    DRIVER_FEE = Decimal("1.00")
+    total_price += DRIVER_FEE  # driver always gets paid
 
+    # VIP benefits only
+    if profile.user_type == "vip":
+
+        # Every 3rd VIP order is free
+        if order_number % 3 == 0:
+            DELIVERY_FEE = Decimal("0.00")
+
+        total_price += DELIVERY_FEE
+
+        # VIP discount (5% off)
+        total_price = total_price * Decimal("0.95")
+
+    else:
+        total_price += DELIVERY_FEE
+
+    order.total_price = total_price.quantize(Decimal("0.01"))
+    order.save()
     return Response({
-        "order_id": order.id,
-        "customer_id": customer.id,
-        "total_price": str(total_price.normalize()),
-        "items": created_items,
-        "status": order.status
+    "order_id": order.id,
+    "customer_id": customer.id,
+    "items": created_items,
+    "delivery_fee": str(DELIVERY_FEE),
+    "driver_fee": str(DRIVER_FEE),
+    "total_price": str(order.total_price),
+    "status": order.status
     })
 
 @api_view(["POST"])
