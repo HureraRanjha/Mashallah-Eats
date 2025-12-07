@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import MenuItem, DiscussionTopic, DiscussionPost, Order, OrderItem, FoodRating, DeliveryBid, DeliveryAssignment
+from .models import MenuItem, DiscussionTopic, DiscussionPost, Order, OrderItem, FoodRating, DeliveryBid, DeliveryAssignment, DeliveryRating
 
 
 class MenuItemSerializer(serializers.ModelSerializer):
