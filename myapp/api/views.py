@@ -15,6 +15,11 @@ from .models import (
     DeliveryAssignment,
     UserProfile
 )
+from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, DeliveryBid, DeliveryAssignment, Order, FoodRating, DeliveryRating, UserProfile, CustomerProfile, Transaction
+import stripe
+from django.conf import settings
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
 from .serializers import(
     MenuItemSerializer,
     DiscussionTopicSerializer,
@@ -26,7 +31,7 @@ from .serializers import(
     DeliveryBidSerializer,
     DeliveryAssignmentSerializer,
     OrderWithBidsSerializer,
-    DeliveryReviewSerializer,
+    DeliveryReviewSerializer
 )
 
 from rest_framework.decorators import api_view
@@ -331,4 +336,88 @@ def RegisterUser(request):
     }
     }, status=201)
 
-#
+
+@api_view(["POST"])
+def create_deposit_intent(request):
+    user = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type not in ["registered", "vip"]:
+        return Response({"error": "Only customers can deposit"}, status=403)
+
+    amount = request.data.get("amount")
+    if not amount or float(amount) <= 0:
+        return Response({"error": "Invalid amount"}, status=400)
+
+    # Stripe expects amount in cents
+    amount_cents = int(float(amount) * 100)
+
+    customer = profile.customerprofile
+
+    # Create or get Stripe customer
+    if not customer.stripe_customer_id:
+        stripe_customer = stripe.Customer.create(
+            email=user.email,
+            name=user.username
+        )
+        customer.stripe_customer_id = stripe_customer.id
+        customer.save()
+
+    # Create PaymentIntent
+    intent = stripe.PaymentIntent.create(
+        amount=amount_cents,
+        currency="usd",
+        customer=customer.stripe_customer_id,
+        metadata={"user_id": user.id, "type": "deposit"}
+    )
+
+    return Response({
+        "client_secret": intent.client_secret,
+        "amount": amount
+    })
+
+
+@api_view(["POST"])
+def confirm_deposit(request):
+    user = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    payment_intent_id = request.data.get("payment_intent_id")
+
+    # Verify payment with Stripe
+    intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+
+    if intent.status != "succeeded":
+        return Response({"error": "Payment not successful"}, status=400)
+
+    # Check if already processed
+    if Transaction.objects.filter(stripe_payment_intent_id=payment_intent_id).exists():
+        return Response({"error": "Payment already processed"}, status=400)
+
+    customer = user.userprofile.customerprofile
+    amount = intent.amount / 100  # Convert cents to dollars
+
+    # Credit the balance
+    customer.deposit_balance += amount
+    customer.save()
+
+    # Record transaction
+    Transaction.objects.create(
+        user=user,
+        transaction_type="deposit",
+        amount=amount,
+        stripe_payment_intent_id=payment_intent_id,
+        payment_status="succeeded",
+        balance_after=customer.deposit_balance
+    )
+
+    return Response({
+        "message": "Deposit successful",
+        "amount": str(amount),
+        "new_balance": str(customer.deposit_balance)
+    })
