@@ -1,7 +1,9 @@
 from django.shortcuts import render, redirect
 from django.http import HttpResponse
-from django.contrib.auth.views import LoginView
 from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth import authenticate, login
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
 from django.contrib.auth.models import User
 from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, DeliveryBid, DeliveryAssignment, Order, FoodRating, DeliveryRating, UserProfile, CustomerProfile, Transaction
 import stripe
@@ -235,10 +237,32 @@ def add_menu(request):
 
 
 
+@api_view(["POST"])
+def LoginUser(request):
+    username = request.data.get("username")
+    password = request.data.get("password")
+    if not username or not password:
+        return Response({"error": "Missing required fields"}, status=400)
 
+    user = authenticate(request, username=username, password=password)
 
-class LoginUser(LoginView):
-    template_name = "login.html"
+    if user is None:
+        return Response({"error": "Invalid username or password"}, status=401)
+
+    login(request, user)
+
+    profile = user.userprofile  
+    user_type = profile.user_type
+    return Response({
+        "message": "Login successful",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "user_type": user_type
+        }
+    }, status=200)
+
 
 @api_view(["POST"])
 def create_delivery_bid(request):
