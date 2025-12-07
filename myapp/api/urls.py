@@ -4,7 +4,7 @@ from .views import index, DishListView, LoginUser, Discussions, create_reply, cr
 urlpatterns = [
     path("index/", index),   # → /api/index/
     path("browse/", DishListView, name="dishes-list"),
-    path("login/", LoginUser.as_view(), name="login"),
+    path("login/", LoginUser, name="login"),
     path("register/", RegisterUser, name="register"),
     path("discussion_board/", Discussions, name="discussion_board"),
     path("reply/", create_reply, name="reply"),
