@@ -3,8 +3,7 @@ from django.http import HttpResponse
 from django.contrib.auth.views import LoginView
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.models import User
-from django.db.models import F
-from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, UserProfile, FoodRating, DeliveryRating
+
 from .serializers import (
     MenuItemSerializer,
     DiscussionTopicSerializer,
@@ -13,6 +12,9 @@ from .serializers import (
     ItemSerializer,
     FoodReviewSerializer,
     AddMenuSerializer,
+    DeliveryBidSerializer,
+    DeliveryAssignmentSerializer,
+    OrderWithBidsSerializer
     DeliveryReviewSerializer
 )
 
@@ -210,6 +212,83 @@ class LoginUser(LoginView):
     template_name = "login.html"
 
 @api_view(["POST"])
+def create_delivery_bid(request):
+    user  = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    
+    profile = user.userprofile
+    if profile.user_type != "delivery":
+        return Response({"error": "Only delivery personnel can bid"}, status=403)
+    
+    delivery_profile = profile.deliveryperson
+    data = request.data.copy()
+    data["delivery_person"] = delivery_profile.id
+
+    serializer = DeliveryBidSerializer(data=data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=201)
+
+    return Response(serializer.errors, status=400)
+
+@api_view(["GET"])
+def get_delivery_bids(request):
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "manager":
+        return Response({"error": "Only manager personnel can view bids"}, status=403)
+
+    pending_orders = Order.objects.filter(status="pending").exclude(assignment__isnull=False)
+    serializer = OrderWithBidsSerializer(pending_orders, many=True)
+
+    return Response({"orders": serializer.data})
+
+
+@api_view(["POST"])
+@csrf_exempt
+def assign_delivery(request):
+    user = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "manager":
+        return Response({"error": "Only managers can assign deliveries"}, status=403)
+
+    order_id = request.data.get("order_id")
+    bid_id = request.data.get("bid_id")
+    justification = request.data.get("justification_memo", "")
+
+    selected_bid = DeliveryBid.objects.get(id=bid_id)
+    lowest_bid = DeliveryBid.objects.filter(order_id=order_id).first()
+
+    # Require justification if not choosing lowest bidder
+    if selected_bid.id != lowest_bid.id and not justification:
+        return Response({"error": "Justification memo required when not selecting lowest bidder"}, status=400)
+
+    # Create assignment record
+    DeliveryAssignment.objects.create(
+        order_id=order_id,
+        delivery_person=selected_bid.delivery_person,
+        assigned_by=user,
+        winning_bid=selected_bid,
+        justification_memo=justification if selected_bid.id != lowest_bid.id else None
+    )
+
+    # Update order
+    order = Order.objects.get(id=order_id)
+    order.delivery_person = selected_bid.delivery_person
+    order.delivery_bid_price = selected_bid.bid_amount
+    order.status = "preparing"
+    order.save()
+
+    return Response({"message": "Delivery assigned", "order_id": order_id}, status=201)
 def RegisterUser(request):
     username = request.data.get("username")
     email = request.data.get("email")
