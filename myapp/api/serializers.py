@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import MenuItem, DiscussionTopic, DiscussionPost, Order, OrderItem, FoodRating
+from .models import MenuItem, DiscussionTopic, DiscussionPost, Order, OrderItem, FoodRating, DeliveryRating
 
 
 class MenuItemSerializer(serializers.ModelSerializer):
@@ -34,6 +34,11 @@ class ItemSerializer(serializers.ModelSerializer):
 class FoodReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = FoodRating
+        fields = "__all__"        
+
+class DeliveryReviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DeliveryRating
         fields = "__all__"        
 
 class AddMenuSerializer(serializers.ModelSerializer):
