@@ -34,7 +34,7 @@ class ItemSerializer(serializers.ModelSerializer):
 class FoodReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = FoodRating
-        fields = "__all__"        
+        fields = ["order_item", "rating"]       
 
 class DeliveryReviewSerializer(serializers.ModelSerializer):
     class Meta:
