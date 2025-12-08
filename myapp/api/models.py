@@ -465,6 +465,7 @@ class Compliment(models.Model):
     TARGET_TYPE_CHOICES = [
         ('chef', 'Chef'),
         ('delivery', 'Delivery Person'),
+        ('customer', 'Customer'),
     ]
 
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='compliments_given')
