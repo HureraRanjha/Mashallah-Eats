@@ -53,6 +53,7 @@ class CustomerProfile(models.Model):
     is_blacklisted = models.BooleanField(default=False)
     deposit_balance = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     vip_free_deliveries_remaining = models.IntegerField(default=0)
+    default_address = models.TextField(blank=True, null=True)
 
     # Stripe fields
     stripe_customer_id = models.CharField(max_length=255, blank=True, null=True, unique=True)
@@ -359,6 +360,7 @@ class Order(models.Model):
     ]
 
     customer = models.ForeignKey(CustomerProfile, on_delete=models.CASCADE, related_name='orders')
+    delivery_address = models.TextField()
     total_price = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
