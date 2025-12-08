@@ -23,7 +23,7 @@ class UserProfileAdmin(admin.ModelAdmin):
 class CustomerProfileAdmin(admin.ModelAdmin):
     list_display = ['user_profile', 'warnings_count', 'order_count', 'total_spent', 'deposit_balance', 'is_blacklisted']
     list_filter = ['is_blacklisted', 'user_profile__user_type']
-    search_fields = ['user_profile__user__username']
+    search_fields = ['user_profile__user__username', 'default_address']
 
 @admin.register(Chef)
 class ChefAdmin(admin.ModelAdmin):
@@ -45,7 +45,7 @@ class MenuItemAdmin(admin.ModelAdmin):
 class OrderAdmin(admin.ModelAdmin):
     list_display = ['id', 'customer', 'total_price', 'status', 'payment_status', 'created_at', 'delivery_person']
     list_filter = ['status', 'payment_status', 'is_free_delivery']
-    search_fields = ['customer__user_profile__user__username']
+    search_fields = ['customer__user_profile__user__username', 'delivery_address']
 
 @admin.register(OrderItem)
 class OrderItemAdmin(admin.ModelAdmin):
