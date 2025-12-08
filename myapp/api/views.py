@@ -5,7 +5,7 @@ from django.contrib.auth import authenticate, login
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.contrib.auth.models import User
-from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, DeliveryBid, DeliveryAssignment, Order, FoodRating, DeliveryRating, UserProfile, CustomerProfile, Transaction
+from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, DeliveryBid, DeliveryAssignment, Order, FoodRating, DeliveryRating, UserProfile, CustomerProfile, Transaction, Chef
 import stripe
 from decimal import Decimal
 from django.conf import settings
@@ -173,28 +173,45 @@ def order_food(request):
 @csrf_exempt
 def food_review(request):
     serializer = FoodReviewSerializer(data=request.data)
+
     if serializer.is_valid():
-        review = serializer.save()
+        review = serializer.save(customer=request.user.userprofile.customerprofile)
+
         order_item = review.order_item
         menu_item = order_item.menu_item
-        ratings = FoodRating.objects.filter(order_item__menu_item=menu_item)
+        chef = menu_item.chef
 
-        num_ratings = 0
-        total_sum = 0
+        dish_ratings = FoodRating.objects.filter(
+            order_item__menu_item=menu_item
+        )
 
-        for r in ratings:
-            num_ratings += 1
-            total_sum += r.rating
-
-        if num_ratings > 0:
-            average = total_sum / num_ratings
+        dish_count = dish_ratings.count()
+        if dish_count > 0:
+            dish_total = sum(r.rating for r in dish_ratings)
+            dish_avg = dish_total / dish_count
         else:
-            average = 0
-        menu_item.average_rating = average
-        menu_item.total_orders = menu_item.total_orders + 1
+            dish_avg = 0
+
+        menu_item.average_rating = dish_avg
+        menu_item.total_orders += 1
         menu_item.save()
+
+        chef_ratings = FoodRating.objects.filter(
+            order_item__menu_item__chef=chef
+        )
+        chef_count = chef_ratings.count()
+        if chef_count > 0:
+            chef_total = sum(r.rating for r in chef_ratings)
+            chef_avg = chef_total / chef_count
+        else:
+            chef_avg = 0
+
+        chef.average_rating = chef_avg
+        chef.save()
         return Response(serializer.data, status=201)
+
     return Response(serializer.errors, status=400)
+
 
 @api_view(["POST"])
 def delivery_rating(request):
@@ -215,7 +232,6 @@ def delivery_rating(request):
         return Response(serializer.data, status=201)
 
     return Response(serializer.errors, status=400)
-
 
 
 @api_view(["POST"])
