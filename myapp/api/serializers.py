@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import MenuItem, DiscussionTopic, DiscussionPost, Order, OrderItem, FoodRating, DeliveryBid, DeliveryAssignment, DeliveryRating
+from .models import MenuItem, DiscussionTopic, DiscussionPost, Order, OrderItem, FoodRating, DeliveryBid, DeliveryAssignment, DeliveryRating, Complaint, Compliment
 
 
 class MenuItemSerializer(serializers.ModelSerializer):
@@ -84,3 +84,15 @@ class OrderWithBidsSerializer(serializers.ModelSerializer):
     
     # def get_delivery_person_rating(self, obj):
     #     return obj.delivery_person.userprofile.average_rating
+
+
+class ComplaintSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Complaint
+        fields = "__all__"
+
+
+class ComplimentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Compliment
+        fields = "__all__"

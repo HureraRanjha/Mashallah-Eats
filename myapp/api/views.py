@@ -5,7 +5,7 @@ from django.contrib.auth import authenticate, login
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.contrib.auth.models import User
-from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, DeliveryBid, DeliveryAssignment, Order, FoodRating, DeliveryRating, UserProfile, CustomerProfile, Transaction, Chef
+from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, DeliveryBid, DeliveryAssignment, Order, FoodRating, DeliveryRating, UserProfile, CustomerProfile, Transaction, Chef, Complaint, DeliveryPerson, Compliment
 import stripe
 from decimal import Decimal
 from django.conf import settings
@@ -22,7 +22,9 @@ from .serializers import(
     DeliveryBidSerializer,
     DeliveryAssignmentSerializer,
     OrderWithBidsSerializer,
-    DeliveryReviewSerializer
+    DeliveryReviewSerializer,
+    ComplaintSerializer,
+    ComplimentSerializer
 )
 
 from rest_framework.decorators import api_view
@@ -373,6 +375,8 @@ def assign_delivery(request):
     order.save()
 
     return Response({"message": "Delivery assigned", "order_id": order_id}, status=201)
+
+@api_view(["POST"])
 def RegisterUser(request):
     username = request.data.get("username")
     email = request.data.get("email")
@@ -489,3 +493,101 @@ def confirm_deposit(request):
         "amount": str(amount),
         "new_balance": str(customer.deposit_balance)
     })
+
+
+@api_view(["POST"])
+@csrf_exempt
+def file_complaint(request):
+    user = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+
+    if profile.user_type not in ["registered", "vip", "delivery"]:
+        return Response({"error": "Only customers and delivery persons can file complaints"}, status=403)
+
+    target_type = request.data.get("target_type")
+    description = request.data.get("description")
+
+    if not target_type or not description:
+        return Response({"error": "target_type and description are required"}, status=400)
+
+    if profile.user_type in ["registered", "vip"]:
+        if target_type not in ["chef", "delivery"]:
+            return Response({"error": "Customers can only complain about chefs or delivery persons"}, status=400)
+
+    if profile.user_type == "delivery":
+        if target_type != "customer":
+            return Response({"error": "Delivery persons can only complain about customers"}, status=400)
+
+    weight = 2 if profile.user_type == "vip" else 1
+
+    serializer = ComplaintSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save(complainant=user, weight=weight, status="pending")
+        return Response({
+            "message": "Complaint filed successfully",
+            "complaint": serializer.data
+        }, status=201)
+
+    return Response(serializer.errors, status=400)
+
+@api_view(["GET"])
+def get_complaints(request):
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    
+    profile = user.userprofile
+    if profile.user_type != "manager":
+        return Response({"error": "Only managers can view complaints"}, status=403)
+    
+    pending_complaints = Complaint.objects.filter(status="pending")
+    serializer = ComplaintSerializer(pending_complaints, many=True)
+    return Response({"complaints": serializer.data})
+
+
+@api_view(["POST"])
+@csrf_exempt
+def file_compliment(request):
+    user = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+
+    # Only customers and delivery persons can file compliments
+    if profile.user_type not in ["registered", "vip", "delivery"]:
+        return Response({"error": "Only customers and delivery persons can file compliments"}, status=403)
+
+    target_type = request.data.get("target_type")
+    description = request.data.get("description")
+
+    if not target_type or not description:
+        return Response({"error": "target_type and description are required"}, status=400)
+
+    # Customers can compliment chefs and delivery persons
+    if profile.user_type in ["registered", "vip"]:
+        if target_type not in ["chef", "delivery"]:
+            return Response({"error": "Customers can only compliment chefs or delivery persons"}, status=400)
+
+    # Delivery persons can compliment customers
+    if profile.user_type == "delivery":
+        if target_type != "customer":
+            return Response({"error": "Delivery persons can only compliment customers"}, status=400)
+
+    # VIP compliments count double
+    weight = 2 if profile.user_type == "vip" else 1
+
+    serializer = ComplimentSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save(author=user, weight=weight, status="pending")
+        return Response({
+            "message": "Compliment filed successfully",
+            "compliment": serializer.data
+        }, status=201)
+
+    return Response(serializer.errors, status=400)
