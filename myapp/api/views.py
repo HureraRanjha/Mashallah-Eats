@@ -159,6 +159,10 @@ def order_food(request):
 
     order.total_price = total_price.quantize(Decimal("0.01"))
     order.save()
+    customer.total_spent += order.total_price
+    customer.order_count += 1
+    customer.save()
+    check_vip_upgrade(profile)
     return Response({
     "order_id": order.id,
     "customer_id": customer.id,
@@ -168,6 +172,12 @@ def order_food(request):
     "total_price": str(order.total_price),
     "status": order.status
     })
+
+def check_vip_upgrade(profile):
+    customer = profile.customerprofile
+    if customer.order_count >= 3 or customer.total_spent >= 100:
+        profile.user_type = "vip"
+        profile.save()
 
 @api_view(["POST"])
 @csrf_exempt
