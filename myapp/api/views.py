@@ -591,3 +591,17 @@ def file_compliment(request):
         }, status=201)
 
     return Response(serializer.errors, status=400)
+
+@api_view(["GET"])
+def get_compliments(request):
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    
+    profile = user.userprofile
+    if profile.user_type != "manager":
+        return Response({"error": "Only managers can view compliments"}, status=403)
+    
+    pending_compliments = Compliment.objects.filter(status="pending")
+    serializer = ComplimentSerializer(pending_compliments, many=True)
+    return Response({"compliments": serializer.data})
