@@ -26,7 +26,8 @@ from .serializers import(
     OrderWithBidsSerializer,
     DeliveryReviewSerializer,
     ComplaintSerializer,
-    ComplimentSerializer
+    ComplimentSerializer,
+    UserProfileSerializer
 )
 
 from rest_framework.decorators import api_view
@@ -38,44 +39,38 @@ def index(request):
 @api_view(["GET"])
 def DishListView(request):
     user = request.user
-    
+
     # Default values for anonymous users
     warnings_count = 0
     current_balance = 0
-    low_balance_alert = False
     profile = None
 
     # 1. Check User Details (if logged in)
     if user.is_authenticated and hasattr(user, "userprofile"):
         profile = user.userprofile
-        
+
         # Only check balance for Customers (not Chefs/Managers)
         if profile.user_type in ["registered", "vip"]:
             customer = getattr(profile, "customerprofile", None)
             if customer:
                 warnings_count = customer.warnings_count
                 current_balance = customer.deposit_balance
-                
-                # 2. The Logic: Is balance under $20?
-                if current_balance < 20.00:
-                    low_balance_alert = True
 
-    # 3. Filter Menu Items (VIP vs Regular) - Preserving Group Logic
+    # 2. Filter Menu Items (VIP vs Regular)
     items = MenuItem.objects.all()
     non_vip_items = MenuItem.objects.filter(is_vip_exclusive=False)
-    
+
     if profile and profile.user_type == "vip":
         serializer = MenuItemSerializer(items, many=True)
     else:
         serializer = MenuItemSerializer(non_vip_items, many=True)
 
-    # 4. Return the enhanced JSON
+    # 3. Return the JSON
     return Response({
         "items": serializer.data,
         "user_info": {
             "warnings_count": warnings_count,
-            "current_balance": str(current_balance), # Convert decimal to string for JSON
-            "low_balance_alert": low_balance_alert
+            "current_balance": str(current_balance),
         }
     })
 
@@ -183,10 +178,15 @@ def order_food(request):
 
             # 4. CHECK BALANCE & DEDUCT (Your Security Logic)
             if customer_profile.deposit_balance < grand_total:
+                # Per requirements: customer gets warning for being reckless
+                warnings_count = customer_profile.add_warning()
                 return Response({
-                    "error": "Insufficient funds", 
+                    "error": "Insufficient funds",
                     "current_balance": str(customer_profile.deposit_balance),
-                    "order_total": str(grand_total)
+                    "order_total": str(grand_total),
+                    "warning_issued": True,
+                    "warnings_count": warnings_count,
+                    "is_blacklisted": customer_profile.is_blacklisted
                 }, status=status.HTTP_402_PAYMENT_REQUIRED)
 
             # Deduct money
@@ -635,10 +635,12 @@ def file_complaint(request):
     if not target_type or not description:
         return Response({"error": "target_type and description are required"}, status=400)
 
+    # Customers can complain about chefs, delivery persons, or other customers (discussion forum behavior)
     if profile.user_type in ["registered", "vip"]:
-        if target_type not in ["chef", "delivery"]:
-            return Response({"error": "Customers can only complain about chefs or delivery persons"}, status=400)
+        if target_type not in ["chef", "delivery", "customer"]:
+            return Response({"error": "Customers can only complain about chefs, delivery persons, or other customers"}, status=400)
 
+    # Delivery persons can complain about customers
     if profile.user_type == "delivery":
         if target_type != "customer":
             return Response({"error": "Delivery persons can only complain about customers"}, status=400)
@@ -802,6 +804,21 @@ def process_complaint(request):
             except (UserProfile.DoesNotExist, DeliveryPerson.DoesNotExist):
                 result["warning"] = "Could not find delivery person profile to add complaint"
 
+    elif decision == "dismissed":
+        # Complainant filed without merit - they get a warning
+        complainant = complaint.complainant
+        try:
+            complainant_profile = complainant.userprofile
+            if complainant_profile.user_type in ["registered", "vip"]:
+                customer_profile = complainant_profile.customerprofile
+                warnings_count = customer_profile.add_warning()
+                result["complainant_warning"] = True
+                result["complainant_warnings_count"] = warnings_count
+                result["complainant_is_blacklisted"] = customer_profile.is_blacklisted
+                result["complainant_user_type"] = complainant_profile.user_type
+        except (UserProfile.DoesNotExist, CustomerProfile.DoesNotExist):
+            result["complainant_warning_note"] = "Could not find complainant customer profile to add warning"
+
     return Response(result, status=200)
 
 
@@ -899,3 +916,19 @@ def blacklist_user(request):
         "user_id": target_user_id,
         "is_blacklisted": True
     }, status=200)
+
+
+@api_view(["GET"])
+def get_profile(request):
+    user = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    try:
+        profile = user.userprofile
+    except UserProfile.DoesNotExist:
+        return Response({"error": "User profile not found"}, status=404)
+
+    serializer = UserProfileSerializer(profile)
+    return Response(serializer.data, status=200)
