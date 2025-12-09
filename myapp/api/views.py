@@ -350,17 +350,28 @@ def LoginUser(request):
     if user is None:
         return Response({"error": "Invalid username or password"}, status=401)
 
+    try:
+        profile = user.userprofile
+    except UserProfile.DoesNotExist:
+        return Response({"error": "Account setup incomplete. Please register."}, status=400)
+
     login(request, user)
 
-    profile = user.userprofile  
-    user_type = profile.user_type
+    # Get customer_profile_id if user is a customer
+    customer_profile_id = None
+    if profile.user_type in ['registered', 'vip']:
+        customer_profile = getattr(profile, 'customerprofile', None)
+        if customer_profile:
+            customer_profile_id = customer_profile.id
+
     return Response({
         "message": "Login successful",
         "user": {
             "id": user.id,
             "username": user.username,
             "email": user.email,
-            "user_type": user_type
+            "user_type": profile.user_type,
+            "customer_profile_id": customer_profile_id
         }
     }, status=200)
 
