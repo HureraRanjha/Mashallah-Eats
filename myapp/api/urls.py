@@ -26,5 +26,4 @@ urlpatterns = [
     path("orders/history/", order_history, name="order_history"),
     path("blacklist/", blacklist_user, name="blacklist"),
     path("compliment/process/", process_compliment, name="process_compliment"),
-    path("orders/history/", order_history, name="order_history")
 ]
