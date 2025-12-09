@@ -82,6 +82,7 @@ export default function Cart() {
         },
         credentials: "include",
         body: JSON.stringify({
+          customer_id: user.user?.customer_profile_id || user.customer_profile_id,
           items: cartItems.map(item => ({
             menu_item_id: item.id,
             quantity: item.quantity
