@@ -5,7 +5,7 @@ from django.contrib.auth import authenticate, login
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.contrib.auth.models import User
-from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, DeliveryBid, DeliveryAssignment, Order, FoodRating, DeliveryRating, UserProfile, CustomerProfile, Transaction, Chef, Complaint, DeliveryPerson, Compliment
+from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, DeliveryBid, DeliveryAssignment, Order, FoodRating, DeliveryRating, UserProfile, CustomerProfile, Transaction, Chef, Complaint, DeliveryPerson, Compliment, CustomerProfile
 import stripe
 from decimal import Decimal
 from django.conf import settings
@@ -710,3 +710,33 @@ def get_compliments(request):
     pending_compliments = Compliment.objects.filter(status="pending")
     serializer = ComplimentSerializer(pending_compliments, many=True)
     return Response({"compliments": serializer.data})
+
+@api_view(["POST"])
+def blacklist_user(request):
+    user = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+
+    profile = user.userprofile
+    if profile.user_type != "manager":
+        return Response({"error": "Only managers can blacklist users"}, status=403)
+
+    target_user_id = request.data.get("user_id")
+    if not target_user_id:
+        return Response({"error": "Missing user_id in request"}, status=400)
+
+    try:
+        cust_prof = CustomerProfile.objects.get(user_profile_id=target_user_id)
+    except CustomerProfile.DoesNotExist:
+        return Response({"error": "Customer profile not found"}, status=404)
+
+    cust_prof.is_blacklisted = True
+    cust_prof.save()
+
+    return Response({
+        "message": "User blacklisted successfully",
+        "user_id": target_user_id,
+        "is_blacklisted": True
+    }, status=200)
