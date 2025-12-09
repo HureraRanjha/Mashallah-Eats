@@ -5,7 +5,7 @@ from django.contrib.auth import authenticate, login
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.contrib.auth.models import User
-from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, DeliveryBid, DeliveryAssignment, Order, FoodRating, DeliveryRating, UserProfile, CustomerProfile, Transaction, Chef, Complaint, DeliveryPerson, Compliment, CustomerProfile
+from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, DeliveryBid, DeliveryAssignment, Order, FoodRating, DeliveryRating, UserProfile, CustomerProfile, Transaction, Chef, Complaint, DeliveryPerson, Compliment
 import stripe
 from decimal import Decimal
 from django.conf import settings
@@ -288,8 +288,7 @@ def food_review(request):
         else:
             chef_avg = 0
 
-        chef.average_rating = chef_avg
-        chef.save()
+        chef.update_rating(chef_avg)
         return Response(serializer.data, status=201)
 
     return Response(serializer.errors, status=400)
@@ -308,8 +307,7 @@ def delivery_rating(request):
         count = ratings.count()
         avg = total / count
 
-        delivery_person.average_rating = avg
-        delivery_person.save()
+        delivery_person.update_rating(avg)
 
         return Response(serializer.data, status=201)
 
@@ -710,6 +708,149 @@ def get_compliments(request):
     pending_compliments = Compliment.objects.filter(status="pending")
     serializer = ComplimentSerializer(pending_compliments, many=True)
     return Response({"compliments": serializer.data})
+
+
+@api_view(["POST"])
+@csrf_exempt
+def process_complaint(request):
+    user = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "manager":
+        return Response({"error": "Only managers can process complaints"}, status=403)
+
+    complaint_id = request.data.get("complaint_id")
+    decision = request.data.get("decision")
+    manager_notes = request.data.get("manager_decision", "")
+
+    if not complaint_id or not decision:
+        return Response({"error": "complaint_id and decision are required"}, status=400)
+
+    if decision not in ["upheld", "dismissed"]:
+        return Response({"error": "decision must be 'upheld' or 'dismissed'"}, status=400)
+
+    try:
+        complaint = Complaint.objects.get(id=complaint_id)
+    except Complaint.DoesNotExist:
+        return Response({"error": "Complaint not found"}, status=404)
+
+    if complaint.status != "pending":
+        return Response({"error": "Complaint has already been processed"}, status=400)
+
+    from django.utils import timezone
+
+    complaint.status = decision
+    complaint.manager_decision = manager_notes
+    complaint.processed_by = user
+    complaint.processed_at = timezone.now()
+    complaint.save()
+
+    result = {"message": f"Complaint {decision}", "complaint_id": complaint_id}
+
+    if decision == "upheld":
+        target_type = complaint.target_type
+        target_user = complaint.target_user
+
+        if target_type == "customer":
+            try:
+                customer_profile = target_user.userprofile.customerprofile
+                warnings_count = customer_profile.add_warning()
+                result["warnings_count"] = warnings_count
+                result["is_blacklisted"] = customer_profile.is_blacklisted
+                result["user_type"] = customer_profile.user_profile.user_type
+            except (UserProfile.DoesNotExist, CustomerProfile.DoesNotExist):
+                result["warning"] = "Could not find customer profile to add warning"
+
+        elif target_type == "chef":
+            try:
+                chef = target_user.userprofile.chef
+                complaint_added = chef.add_complaint()
+                result["complaint_added"] = complaint_added
+                result["complaint_count"] = chef.complaint_count
+                result["demotion_count"] = chef.demotion_count
+            except (UserProfile.DoesNotExist, Chef.DoesNotExist):
+                result["warning"] = "Could not find chef profile to add complaint"
+
+        elif target_type == "delivery":
+            try:
+                delivery_person = target_user.userprofile.deliveryperson
+                complaint_added = delivery_person.add_complaint()
+                result["complaint_added"] = complaint_added
+                result["complaint_count"] = delivery_person.complaint_count
+                result["demotion_count"] = delivery_person.demotion_count
+            except (UserProfile.DoesNotExist, DeliveryPerson.DoesNotExist):
+                result["warning"] = "Could not find delivery person profile to add complaint"
+
+    return Response(result, status=200)
+
+
+@api_view(["POST"])
+@csrf_exempt
+def process_compliment(request):
+    user = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "manager":
+        return Response({"error": "Only managers can process compliments"}, status=403)
+
+    compliment_id = request.data.get("compliment_id")
+
+    if not compliment_id:
+        return Response({"error": "compliment_id is required"}, status=400)
+
+    try:
+        compliment = Compliment.objects.get(id=compliment_id)
+    except Compliment.DoesNotExist:
+        return Response({"error": "Compliment not found"}, status=404)
+
+    if compliment.status != "pending":
+        return Response({"error": "Compliment has already been processed"}, status=400)
+
+    from django.utils import timezone
+
+    compliment.status = "approved"
+    compliment.processed_by = user
+    compliment.processed_at = timezone.now()
+    compliment.save()
+
+    result = {"message": "Compliment approved", "compliment_id": compliment_id}
+
+    target_type = compliment.target_type
+    target_user = compliment.target_user
+
+    if target_type == "chef":
+        try:
+            chef = target_user.userprofile.chef
+            count_before = chef.compliment_count
+            chef.add_compliment()
+            result["compliment_count"] = chef.compliment_count
+            # add_compliment() resets to 0 after hitting 3, so if it was 2 and now 0, bonus was awarded
+            if count_before == 2 and chef.compliment_count == 0:
+                result["bonus_awarded"] = True
+        except (UserProfile.DoesNotExist, Chef.DoesNotExist):
+            result["warning"] = "Could not find chef profile to add compliment"
+
+    elif target_type == "delivery":
+        try:
+            delivery_person = target_user.userprofile.deliveryperson
+            count_before = delivery_person.compliment_count
+            delivery_person.add_compliment()
+            result["compliment_count"] = delivery_person.compliment_count
+            if count_before == 2 and delivery_person.compliment_count == 0:
+                result["bonus_awarded"] = True
+        except (UserProfile.DoesNotExist, DeliveryPerson.DoesNotExist):
+            result["warning"] = "Could not find delivery person profile to add compliment"
+
+    elif target_type == "customer":
+        result["note"] = "Compliment recorded for customer"
+
+    return Response(result, status=200)
 
 @api_view(["POST"])
 def blacklist_user(request):
