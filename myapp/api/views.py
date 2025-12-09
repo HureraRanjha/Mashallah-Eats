@@ -457,6 +457,24 @@ def RegisterUser(request):
     if password != confirm:
         return Response({"error": "Passwords do not match"}, status=400)
     
+    if CustomerProfile.objects.filter(
+        user_profile__user__username=username,
+        is_blacklisted=True
+    ).exists():
+        return Response(
+            {"error": "This username belongs to a blacklisted user and cannot be used."},
+            status=403
+        )
+
+    if CustomerProfile.objects.filter(
+        user_profile__user__email=email,
+        is_blacklisted=True
+    ).exists():
+        return Response(
+            {"error": "This email belongs to a blacklisted user and cannot be used."},
+            status=403
+        )
+
     user = User(username=username, email=email)
     user.set_password(password)
     user.save()
