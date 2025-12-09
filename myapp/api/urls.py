@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import index, DishListView, LoginUser, Discussions, create_reply, create_topic, order_food, food_review, add_menu, create_delivery_bid, get_delivery_bids, assign_delivery, delivery_rating, RegisterUser, create_deposit_intent, confirm_deposit, file_complaint, get_complaints, file_compliment, get_compliments, order_history
+from .views import index, DishListView, LoginUser, Discussions, create_reply, create_topic, order_food, food_review, add_menu, create_delivery_bid, get_delivery_bids, assign_delivery, delivery_rating, RegisterUser, create_deposit_intent, confirm_deposit, file_complaint, get_complaints, process_complaint, file_compliment, get_compliments, process_compliment, order_history
 
 urlpatterns = [
     path("index/", index),   # → /api/index/
@@ -20,7 +20,9 @@ urlpatterns = [
     path("deposit/confirm/", confirm_deposit, name="confirm_deposit"),
     path("complaint/", file_complaint, name="file_complaint"),
     path("complaints/", get_complaints, name="get_complaints"),
+    path("complaint/process/", process_complaint, name="process_complaint"),
     path("compliment/", file_compliment, name="file_compliment"),
     path("compliments/", get_compliments, name="get_compliments"),
+    path("compliment/process/", process_compliment, name="process_compliment"),
     path("orders/history/", order_history, name="order_history")
 ]
