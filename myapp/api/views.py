@@ -9,6 +9,8 @@ from .models import MenuItem, DiscussionTopic, DiscussionPost, OrderItem, Delive
 import stripe
 from decimal import Decimal
 from django.conf import settings
+from django.db import transaction
+from rest_framework import status
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 from .serializers import(
@@ -36,26 +38,45 @@ def index(request):
 @api_view(["GET"])
 def DishListView(request):
     user = request.user
-    warnings = None
-    profile = None 
+    
+    # Default values for anonymous users
+    warnings_count = 0
+    current_balance = 0
+    low_balance_alert = False
+    profile = None
 
+    # 1. Check User Details (if logged in)
     if user.is_authenticated and hasattr(user, "userprofile"):
         profile = user.userprofile
+        
+        # Only check balance for Customers (not Chefs/Managers)
         if profile.user_type in ["registered", "vip"]:
             customer = getattr(profile, "customerprofile", None)
             if customer:
-                warnings = customer.warnings_count
+                warnings_count = customer.warnings_count
+                current_balance = customer.deposit_balance
+                
+                # 2. The Logic: Is balance under $20?
+                if current_balance < 20.00:
+                    low_balance_alert = True
 
+    # 3. Filter Menu Items (VIP vs Regular) - Preserving Group Logic
     items = MenuItem.objects.all()
     non_vip_items = MenuItem.objects.filter(is_vip_exclusive=False)
+    
     if profile and profile.user_type == "vip":
         serializer = MenuItemSerializer(items, many=True)
     else:
         serializer = MenuItemSerializer(non_vip_items, many=True)
 
+    # 4. Return the enhanced JSON
     return Response({
         "items": serializer.data,
-        "warnings": warnings,
+        "user_info": {
+            "warnings_count": warnings_count,
+            "current_balance": str(current_balance), # Convert decimal to string for JSON
+            "low_balance_alert": low_balance_alert
+        }
     })
 
 @api_view(["GET"])
@@ -96,84 +117,133 @@ def create_topic(request):
 @api_view(["POST"])
 @csrf_exempt
 def order_food(request):
+    """
+    MERGED VERSION:
+    - User Logic: Atomic transaction, Balance Check, Payment Deduction, Optimized Queries
+    - Group Logic: Delivery Fees, Driver Fees, VIP 3rd Order Free logic
+    """
     data = request.data
-    user = request.user
-    profile = user.userprofile
-    customer = profile.customerprofile
-    # STEP 1 — Validate and create the Order (temporary total = 0)
-    order_serializer = OrderSerializer(data={
-        "customer": customer.id,
-        "total_price": 0
-    })
-
-    if not order_serializer.is_valid():
-        return Response(order_serializer.errors, status=400)
-
-    order = order_serializer.save()
-
-    total_price = 0
-    created_items = []
-
-    # STEP 2 — Loop through each item and create OrderItem manually
-    for item in data["items"]:
-        menu_item = MenuItem.objects.get(id=item["menu_item_id"])
-        quantity = item["quantity"]
-        price = menu_item.price
-
-        # Calculate running total
-        total_price += price * quantity
-
-        # Create the OrderItem
-        order_item = OrderItem.objects.create(
-            order=order,
-            menu_item=menu_item,
-            quantity=quantity,
-            price_at_time=price
-        )
-
-        created_items.append({
-            "menu_item": menu_item.name,
-            "quantity": quantity,
-            "price_at_time": str(price)
-        })
-
-    # STEP 3 — Update the order total
-    orders = Order.objects.filter(customer=customer)
-    order_number = orders.count() + 1
-    DELIVERY_FEE = Decimal("2.50")
-    DRIVER_FEE = Decimal("1.00")
-    total_price += DRIVER_FEE  # driver always gets paid
-
-    # VIP benefits only
-    if profile.user_type == "vip":
-
-        # Every 3rd VIP order is free
-        if order_number % 3 == 0:
-            DELIVERY_FEE = Decimal("0.00")
-
-        total_price += DELIVERY_FEE
-
-        # VIP discount (5% off)
-        total_price = total_price * Decimal("0.95")
-
+    # Allow getting customer_id from request (for testing) or logged-in user
+    if request.user.is_authenticated and hasattr(request.user, 'userprofile'):
+        customer_id = request.user.userprofile.customerprofile.id
     else:
-        total_price += DELIVERY_FEE
+        customer_id = data.get("customer_id")
 
-    order.total_price = total_price.quantize(Decimal("0.01"))
-    order.save()
-    customer.total_spent += order.total_price
-    customer.order_count += 1
-    customer.save()
-    check_vip_upgrade(profile)
-    return Response({
-    "order_id": order.id,
-    "customer_id": customer.id,
-    "items": created_items,
-    "delivery_fee": str(DELIVERY_FEE),
-    "driver_fee": str(DRIVER_FEE),
-    "total_price": str(order.total_price),
-    "status": order.status
-    })
+    items_data = data.get("items", [])
+    if not items_data:
+        return Response({"error": "No items provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        with transaction.atomic():
+            # 1. LOCK THE CUSTOMER ROW (Your Security Logic)
+            try:
+                customer_profile = CustomerProfile.objects.select_for_update().get(id=customer_id)
+            except CustomerProfile.DoesNotExist:
+                return Response({"error": "Customer not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            # 2. CALCULATE ITEM TOTALS (Your Optimized Logic)
+            item_ids = [item['menu_item_id'] for item in items_data]
+            menu_items_map = {m.id: m for m in MenuItem.objects.filter(id__in=item_ids)}
+            
+            subtotal = Decimal("0.00")
+            temp_items = []
+
+            for item in items_data:
+                m_id = item["menu_item_id"]
+                menu_item = menu_items_map.get(m_id)
+                if not menu_item:
+                    raise ValueError(f"Menu Item ID {m_id} does not exist")
+                
+                qty = item["quantity"]
+                # Ensure we use Decimals for money
+                price = Decimal(str(menu_item.price))
+                subtotal += price * qty
+                
+                temp_items.append((menu_item, qty, price))
+
+            # 3. CALCULATE FEES (Group's Logic)
+            DELIVERY_FEE = Decimal("2.50")
+            DRIVER_FEE = Decimal("1.00")
+            
+            # Check VIP rules
+            is_vip = customer_profile.user_profile.user_type == 'vip'
+            
+            if is_vip:
+                # Group Logic: Every 3rd order is free delivery
+                # We count existing orders + 1 for current
+                current_order_num = customer_profile.order_count + 1
+                if current_order_num % 3 == 0:
+                    DELIVERY_FEE = Decimal("0.00")
+                
+                # Group Logic: 5% Discount on food
+                subtotal = subtotal * Decimal("0.95")
+
+            grand_total = subtotal + DELIVERY_FEE + DRIVER_FEE
+            grand_total = grand_total.quantize(Decimal("0.01"))
+
+            # 4. CHECK BALANCE & DEDUCT (Your Security Logic)
+            if customer_profile.deposit_balance < grand_total:
+                return Response({
+                    "error": "Insufficient funds", 
+                    "current_balance": str(customer_profile.deposit_balance),
+                    "order_total": str(grand_total)
+                }, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+            # Deduct money
+            customer_profile.deposit_balance -= grand_total
+            customer_profile.total_spent += grand_total
+            customer_profile.order_count += 1
+            
+            # Check for VIP upgrade (Your Logic)
+            upgraded = customer_profile.check_vip_upgrade()
+            customer_profile.save()
+
+            # 5. SAVE ORDER (Combined Logic)
+            order_serializer = OrderSerializer(data={
+                "customer": customer_id,
+                "total_price": grand_total,
+                "status": "pending",
+                # Save fee info if your model supports it, otherwise ignore
+            })
+            if not order_serializer.is_valid():
+                raise ValueError(str(order_serializer.errors))
+            
+            order = order_serializer.save()
+
+            created_items_data = []
+            for menu_item, qty, price in temp_items:
+                OrderItem.objects.create(
+                    order=order,
+                    menu_item=menu_item,
+                    quantity=qty,
+                    price_at_time=price
+                )
+                created_items_data.append({
+                    "menu_item": menu_item.name,
+                    "quantity": qty,
+                    "price": str(price)
+                })
+
+            response_data = {
+                "order_id": order.id,
+                "subtotal": str(subtotal),
+                "delivery_fee": str(DELIVERY_FEE),
+                "driver_fee": str(DRIVER_FEE),
+                "total_price": str(grand_total),
+                "remaining_balance": str(customer_profile.deposit_balance),
+                "items": created_items_data,
+                "status": "pending"
+            }
+
+            if upgraded:
+                response_data["message"] = "Congratulations! You have been upgraded to VIP status!"
+
+            return Response(response_data, status=status.HTTP_201_CREATED)
+
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        return Response({"error": f"Order processing failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 def check_vip_upgrade(profile):
     customer = profile.customerprofile
@@ -494,6 +564,41 @@ def confirm_deposit(request):
         "new_balance": str(customer.deposit_balance)
     })
 
+@api_view(["GET"])
+def order_history(request):
+    # 1. Get the logged-in user
+    user = request.user
+    
+    # 2. Check Authentication
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
+    
+    # 3. Get the Customer Profile
+    try:
+        customer_profile = user.userprofile.customerprofile
+    except AttributeError:
+        return Response({"error": "User is not a customer"}, status=status.HTTP_403_FORBIDDEN)
+
+    # 4. Fetch Orders (Newest first)
+    orders = Order.objects.filter(customer=customer_profile).order_by('-created_at')
+    
+    # 5. Serialize
+    # We use a custom format here to include specific details users care about
+    data = []
+    for order in orders:
+        items = order.items.all()
+        item_names = [f"{i.quantity}x {i.menu_item.name}" for i in items]
+        
+        data.append({
+            "order_id": order.id,
+            "status": order.get_status_display(), # Shows "Pending" instead of "pending"
+            "total_price": order.total_price,
+            "date": order.created_at.strftime("%Y-%m-%d %H:%M"),
+            "items_summary": ", ".join(item_names),
+            "is_delivered": order.status == 'delivered'
+        })
+
+    return Response({"orders": data})
 
 @api_view(["POST"])
 @csrf_exempt
