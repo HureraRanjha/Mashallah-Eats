@@ -617,10 +617,12 @@ def file_complaint(request):
     if not target_type or not description:
         return Response({"error": "target_type and description are required"}, status=400)
 
+    # Customers can complain about chefs, delivery persons, or other customers (discussion forum behavior)
     if profile.user_type in ["registered", "vip"]:
-        if target_type not in ["chef", "delivery"]:
-            return Response({"error": "Customers can only complain about chefs or delivery persons"}, status=400)
+        if target_type not in ["chef", "delivery", "customer"]:
+            return Response({"error": "Customers can only complain about chefs, delivery persons, or other customers"}, status=400)
 
+    # Delivery persons can complain about customers
     if profile.user_type == "delivery":
         if target_type != "customer":
             return Response({"error": "Delivery persons can only complain about customers"}, status=400)
@@ -783,6 +785,21 @@ def process_complaint(request):
                 result["demotion_count"] = delivery_person.demotion_count
             except (UserProfile.DoesNotExist, DeliveryPerson.DoesNotExist):
                 result["warning"] = "Could not find delivery person profile to add complaint"
+
+    elif decision == "dismissed":
+        # Complainant filed without merit - they get a warning
+        complainant = complaint.complainant
+        try:
+            complainant_profile = complainant.userprofile
+            if complainant_profile.user_type in ["registered", "vip"]:
+                customer_profile = complainant_profile.customerprofile
+                warnings_count = customer_profile.add_warning()
+                result["complainant_warning"] = True
+                result["complainant_warnings_count"] = warnings_count
+                result["complainant_is_blacklisted"] = customer_profile.is_blacklisted
+                result["complainant_user_type"] = complainant_profile.user_type
+        except (UserProfile.DoesNotExist, CustomerProfile.DoesNotExist):
+            result["complainant_warning_note"] = "Could not find complainant customer profile to add warning"
 
     return Response(result, status=200)
 
