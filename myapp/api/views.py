@@ -26,7 +26,8 @@ from .serializers import(
     OrderWithBidsSerializer,
     DeliveryReviewSerializer,
     ComplaintSerializer,
-    ComplimentSerializer
+    ComplimentSerializer,
+    UserProfileSerializer
 )
 
 from rest_framework.decorators import api_view
@@ -898,3 +899,19 @@ def blacklist_user(request):
         "user_id": target_user_id,
         "is_blacklisted": True
     }, status=200)
+
+
+@api_view(["GET"])
+def get_profile(request):
+    user = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    try:
+        profile = user.userprofile
+    except UserProfile.DoesNotExist:
+        return Response({"error": "User profile not found"}, status=404)
+
+    serializer = UserProfileSerializer(profile)
+    return Response(serializer.data, status=200)
