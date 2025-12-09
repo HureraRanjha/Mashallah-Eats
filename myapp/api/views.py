@@ -39,44 +39,38 @@ def index(request):
 @api_view(["GET"])
 def DishListView(request):
     user = request.user
-    
+
     # Default values for anonymous users
     warnings_count = 0
     current_balance = 0
-    low_balance_alert = False
     profile = None
 
     # 1. Check User Details (if logged in)
     if user.is_authenticated and hasattr(user, "userprofile"):
         profile = user.userprofile
-        
+
         # Only check balance for Customers (not Chefs/Managers)
         if profile.user_type in ["registered", "vip"]:
             customer = getattr(profile, "customerprofile", None)
             if customer:
                 warnings_count = customer.warnings_count
                 current_balance = customer.deposit_balance
-                
-                # 2. The Logic: Is balance under $20?
-                if current_balance < 20.00:
-                    low_balance_alert = True
 
-    # 3. Filter Menu Items (VIP vs Regular) - Preserving Group Logic
+    # 2. Filter Menu Items (VIP vs Regular)
     items = MenuItem.objects.all()
     non_vip_items = MenuItem.objects.filter(is_vip_exclusive=False)
-    
+
     if profile and profile.user_type == "vip":
         serializer = MenuItemSerializer(items, many=True)
     else:
         serializer = MenuItemSerializer(non_vip_items, many=True)
 
-    # 4. Return the enhanced JSON
+    # 3. Return the JSON
     return Response({
         "items": serializer.data,
         "user_info": {
             "warnings_count": warnings_count,
-            "current_balance": str(current_balance), # Convert decimal to string for JSON
-            "low_balance_alert": low_balance_alert
+            "current_balance": str(current_balance),
         }
     })
 
@@ -184,10 +178,15 @@ def order_food(request):
 
             # 4. CHECK BALANCE & DEDUCT (Your Security Logic)
             if customer_profile.deposit_balance < grand_total:
+                # Per requirements: customer gets warning for being reckless
+                warnings_count = customer_profile.add_warning()
                 return Response({
-                    "error": "Insufficient funds", 
+                    "error": "Insufficient funds",
                     "current_balance": str(customer_profile.deposit_balance),
-                    "order_total": str(grand_total)
+                    "order_total": str(grand_total),
+                    "warning_issued": True,
+                    "warnings_count": warnings_count,
+                    "is_blacklisted": customer_profile.is_blacklisted
                 }, status=status.HTTP_402_PAYMENT_REQUIRED)
 
             # Deduct money
