@@ -1,4 +1,7 @@
 from django.shortcuts import render, redirect
+import os
+import ollama
+from ollama import Client
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth import authenticate, login
@@ -11,6 +14,8 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import transaction
 from rest_framework import status
+
+from .models import KnowledgeBaseEntry
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 from .serializers import(
@@ -945,6 +950,147 @@ def get_profile(request):
     return Response(serializer.data, status=200)
 
 
+@api_view(["POST"])
+def chat_with_ai(request):
+    """
+    Sends a message to Ollama (local LLM) and saves the conversation 
+    as a KnowledgeBaseEntry so it can be rated/managed.
+    """
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    # --- FIX 1: Get the message from the request ---
+    user_message = request.data.get("message")
+    if not user_message:
+        return Response({"error": "Message is required"}, status=400)
+
+    ollama_host = os.getenv("OLLAMA_HOST") # Should be https://ollama.com
+    ollama_key = os.getenv("OLLAMA_API_KEY")
+
+    try:
+        # Create client exactly as the docs show for Cloud API
+        client = Client(
+            host=ollama_host,
+            headers={'Authorization': f'Bearer {ollama_key}'}
+        )
+
+        # The docs use specific cloud model names (e.g., 'gpt-oss:120b'). 
+        # Make sure you are using a model supported by their cloud. 
+        # You might need to check 'ollama.com/search?c=cloud' for valid names.
+        response = client.chat(model='gpt-oss:20b', messages=[ 
+            {'role': 'user', 'content': user_message}
+        ])
+
+        # --- FIX 2: Extract the actual text from the AI response object ---
+        bot_response = response['message']['content']
+
+        # 2. Save to DB (KnowledgeBaseEntry)
+        # We store it immediately so we have an ID to attach a rating to later.
+        kb_entry = KnowledgeBaseEntry.objects.create(
+            author=user,
+            author_type="customer", # or "bot" if you add that choice to your model
+            question=user_message,
+            answer=bot_response,
+            rating_sum=0,
+            rating_count=0
+        )
+
+        return Response({
+            "response": bot_response,
+            "entry_id": kb_entry.id
+        })
+
+    except Exception as e:
+        # This usually happens if Ollama isn't running
+        return Response({"error": f"AI Error: {str(e)}. Is Ollama running?"}, status=503)
+
+
+@api_view(["POST"])
+def rate_kb_entry(request):
+    """
+    Rate an answer. If rating is 0, flag it for manager review.
+    """
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    entry_id = request.data.get("entry_id")
+    rating = request.data.get("rating") # Integer 0-5
+
+    if entry_id is None or rating is None:
+        return Response({"error": "entry_id and rating are required"}, status=400)
+
+    try:
+        entry = KnowledgeBaseEntry.objects.get(id=entry_id)
+        
+        # Security: Decide who can rate. For now, anyone logged in can rate.
+        
+        rating = int(rating)
+        if rating < 0 or rating > 5:
+            return Response({"error": "Rating must be 0-5"}, status=400)
+
+        # 1. Update Rating Stats
+        entry.rating_sum += rating
+        entry.rating_count += 1
+
+        # 2. Flagging Logic (Requirement: Flag if rating = 0)
+        if rating == 0:
+            entry.is_flagged = True
+            entry.flagged_count += 1
+        
+        entry.save()
+
+        return Response({
+            "message": "Rating submitted",
+            "new_average": entry.average_rating,
+            "is_flagged": entry.is_flagged
+        })
+
+    except KnowledgeBaseEntry.DoesNotExist:
+        return Response({"error": "Entry not found"}, status=404)
+
+
+@api_view(["GET", "DELETE"])
+def manage_kb(request):
+    """
+    Manager only: View flagged entries (GET) or delete bad ones (DELETE).
+    """
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    
+    # Check if Manager
+    if not hasattr(user, 'userprofile') or user.userprofile.user_type != 'manager':
+        return Response({"error": "Managers only"}, status=403)
+
+    # GET: List all flagged entries
+    if request.method == "GET":
+        flagged_entries = KnowledgeBaseEntry.objects.filter(is_flagged=True)
+        data = []
+        for entry in flagged_entries:
+            data.append({
+                "id": entry.id,
+                "question": entry.question,
+                "answer": entry.answer,
+                "flagged_count": entry.flagged_count,
+                "created_at": entry.created_at
+            })
+        return Response({"flagged_entries": data})
+
+    # DELETE: Delete a specific entry
+    if request.method == "DELETE":
+        entry_id = request.data.get("entry_id")
+        if not entry_id:
+            return Response({"error": "entry_id required"}, status=400)
+        
+        try:
+            entry = KnowledgeBaseEntry.objects.get(id=entry_id)
+            entry.delete()
+            return Response({"message": "Entry deleted successfully"})
+        except KnowledgeBaseEntry.DoesNotExist:
+            return Response({"error": "Entry not found"}, status=404)
+        
 def AIDiscussionReview(request):
     user = request.user
     ai_summaries = []
