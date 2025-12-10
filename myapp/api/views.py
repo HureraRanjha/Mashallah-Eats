@@ -1091,9 +1091,11 @@ def manage_kb(request):
         except KnowledgeBaseEntry.DoesNotExist:
             return Response({"error": "Entry not found"}, status=404)
         
+@api_view(["GET"])       
 def AIDiscussionReview(request):
     user = request.user
     ai_summaries = []
+
     if not user.is_authenticated:
         return Response({"error": "Authentication required"}, status=401)
 
@@ -1105,20 +1107,52 @@ def AIDiscussionReview(request):
     menu_items = MenuItem.objects.all()
     for menu_item in menu_items:
         discussions = DiscussionTopic.objects.filter(related_dish=menu_item)
+        if not discussions:
+            continue
         for discussion in discussions:
+            posts = discussion.posts.all()
+            post_contents = [post.content for post in posts]
             dish_data = {
-            "dish_id": DiscussionTopic.related_dish,
-            "dish_name": DiscussionTopic.related_dish.name,
+            "dish_id": discussion.related_dish.id,
+            "dish_name": discussion.related_dish.name,
+            "dish_comment": post_contents
         }
+            print(post_contents)
 
         ai_response = call_ai_api(dish_data)
 
+
     # Save the AI summary to your response
         ai_summaries.append({
-            "dish_id": DiscussionTopic.related_dish,
-            "AI_summary": ai_response
-        })
+                "dish_id": discussion.related_dish.id,  # Fixed reference to `discussion.related_dish`
+                "AI_summary": ai_response['message']['content']
+            })
+
 
     return Response({
         "ai_summaries": ai_summaries
     })
+
+def call_ai_api(data):
+    ollama_host = os.getenv("OLLAMA_HOST")
+    ollama_key = os.getenv("OLLAMA_API_KEY")
+
+    client = Client(
+        host=ollama_host,
+        headers={'Authorization': f'Bearer {ollama_key}'}
+    )
+
+    # Make review bullets
+    reviews_text = "\\n".join([f"- {c}" for c in data.get("dish_comment", [])])
+
+    note = "Short summary of the reviews and provide a depiction of what customers think. Do NOT add any extra content of your own."
+
+    # One-line content string
+    content = f"{note}\\n\\nDish ID: {data['dish_id']}, Dish Name: {data['dish_name']}\\n\\nCustomer Reviews:\\n{reviews_text}"
+
+    response = client.chat(
+        model='gpt-oss:20b',
+        messages=[{'role': 'user', 'content': content}]
+    )
+
+    return response       
