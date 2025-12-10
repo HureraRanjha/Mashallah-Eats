@@ -943,3 +943,84 @@ def get_profile(request):
 
     serializer = UserProfileSerializer(profile)
     return Response(serializer.data, status=200)
+
+
+@api_view(["POST"])
+@csrf_exempt
+def dispute_complaint(request):
+    """
+    Allow the target of a complaint to dispute it.
+    The person has the right to dispute the complaint;
+    the manager makes the final call to dismiss the complaint or let the warning stay.
+    """
+    user = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    complaint_id = request.data.get("complaint_id")
+    dispute_text = request.data.get("dispute_text")
+
+    if not complaint_id:
+        return Response({"error": "complaint_id is required"}, status=400)
+
+    if not dispute_text or not dispute_text.strip():
+        return Response({"error": "dispute_text is required"}, status=400)
+
+    try:
+        complaint = Complaint.objects.get(id=complaint_id)
+    except Complaint.DoesNotExist:
+        return Response({"error": "Complaint not found"}, status=404)
+
+    # Only the target of the complaint can dispute it
+    if complaint.target_user != user:
+        return Response({"error": "You can only dispute complaints filed against you"}, status=403)
+
+    # Can only dispute pending complaints
+    if complaint.status != "pending":
+        return Response({"error": "This complaint has already been processed and cannot be disputed"}, status=400)
+
+    # Check if already disputed
+    if complaint.dispute_text:
+        return Response({"error": "This complaint has already been disputed"}, status=400)
+
+    # Save the dispute
+    complaint.dispute_text = dispute_text.strip()
+    complaint.save()
+
+    return Response({
+        "message": "Dispute submitted successfully. The manager will review your dispute.",
+        "complaint_id": complaint_id,
+        "dispute_text": complaint.dispute_text
+    }, status=200)
+
+
+@api_view(["GET"])
+def get_my_complaints(request):
+    """
+    Get complaints filed against the current user so they can view and dispute them.
+    """
+    user = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    # Get complaints where user is the target
+    complaints = Complaint.objects.filter(target_user=user).order_by('-created_at')
+
+    data = []
+    for complaint in complaints:
+        data.append({
+            "id": complaint.id,
+            "complainant": complaint.complainant.username,
+            "target_type": complaint.target_type,
+            "description": complaint.description,
+            "status": complaint.status,
+            "dispute_text": complaint.dispute_text,
+            "manager_decision": complaint.manager_decision,
+            "created_at": complaint.created_at.strftime("%Y-%m-%d %H:%M"),
+            "processed_at": complaint.processed_at.strftime("%Y-%m-%d %H:%M") if complaint.processed_at else None,
+            "can_dispute": complaint.status == "pending" and not complaint.dispute_text
+        })
+
+    return Response({"complaints": data}, status=200)
