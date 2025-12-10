@@ -943,3 +943,36 @@ def get_profile(request):
 
     serializer = UserProfileSerializer(profile)
     return Response(serializer.data, status=200)
+
+
+def AIDiscussionReview(request):
+    user = request.user
+    ai_summaries = []
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+
+    profile = user.userprofile
+    if profile.user_type != "manager":
+        return Response({"error": "Only managers can see AI Summaries"}, status=403)
+    
+    menu_items = MenuItem.objects.all()
+    for menu_item in menu_items:
+        discussions = DiscussionTopic.objects.filter(related_dish=menu_item)
+        for discussion in discussions:
+            dish_data = {
+            "dish_id": DiscussionTopic.related_dish,
+            "dish_name": DiscussionTopic.related_dish.name,
+        }
+
+        ai_response = call_ai_api(dish_data)
+
+    # Save the AI summary to your response
+        ai_summaries.append({
+            "dish_id": DiscussionTopic.related_dish,
+            "AI_summary": ai_response
+        })
+
+    return Response({
+        "ai_summaries": ai_summaries
+    })
