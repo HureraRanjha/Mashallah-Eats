@@ -1,8 +1,20 @@
 from django.urls import path
-from .views import index, DishListView, LoginUser, Discussions, create_reply, create_topic, order_food, food_review, add_menu, create_delivery_bid, get_delivery_bids, assign_delivery, delivery_rating, RegisterUser, create_deposit_intent, confirm_deposit, file_complaint, get_complaints, process_complaint, file_compliment, get_compliments, process_compliment, order_history, blacklist_user, get_profile, chat_with_ai, rate_kb_entry, manage_kb, AIDiscussionReview
+from .views import (
+    index, DishListView, LoginUser, Discussions, create_reply, create_topic,
+    order_food, food_review, add_menu, create_delivery_bid, get_delivery_bids,
+    assign_delivery, delivery_rating, RegisterUser, create_deposit_intent,
+    confirm_deposit, file_complaint, get_complaints, process_complaint,
+    file_compliment, get_compliments, process_compliment, order_history,
+    blacklist_user, get_profile, chat_with_ai, rate_kb_entry, manage_kb,
+    AIDiscussionReview, dispute_complaint, get_my_complaints,
+    hire_employee, fire_employee, update_salary, award_bonus,
+    list_employees, list_customers,
+    submit_registration_request, get_registration_requests, process_registration_request,
+    close_customer_account, customer_quit
+)
 
 urlpatterns = [
-    path("index/", index),   # → /api/index/
+    path("index/", index),
     path("browse/", DishListView, name="dishes-list"),
     path("login/", LoginUser, name="login"),
     path("register/", RegisterUser, name="register"),
@@ -15,21 +27,33 @@ urlpatterns = [
     path("bid/", create_delivery_bid, name="create_bid"),
     path("bids/", get_delivery_bids, name="get_bids"),
     path("assign_delivery/", assign_delivery, name="assign_delivery"),
-    path("review_driver/", delivery_rating, name="review_Driver"),
+    path("review_driver/", delivery_rating, name="review_driver"),
     path("deposit/create/", create_deposit_intent, name="create_deposit"),
     path("deposit/confirm/", confirm_deposit, name="confirm_deposit"),
     path("complaint/", file_complaint, name="file_complaint"),
     path("complaints/", get_complaints, name="get_complaints"),
     path("complaint/process/", process_complaint, name="process_complaint"),
+    path("complaint/dispute/", dispute_complaint, name="dispute_complaint"),
+    path("my_complaints/", get_my_complaints, name="my_complaints"),
     path("compliment/", file_compliment, name="file_compliment"),
     path("compliments/", get_compliments, name="get_compliments"),
+    path("compliment/process/", process_compliment, name="process_compliment"),
     path("orders/history/", order_history, name="order_history"),
     path("blacklist/", blacklist_user, name="blacklist"),
-    path("compliment/process/", process_compliment, name="process_compliment"),
     path("profile/", get_profile, name="profile"),
     path("chat/", chat_with_ai, name="chat_with_ai"),
     path("chat/rate/", rate_kb_entry, name="rate_kb"),
     path("kb/manage/", manage_kb, name="manage_kb"),
-    path("discussion_summary", AIDiscussionReview, name="discussion_summary")
-
+    path("discussion_summary/", AIDiscussionReview, name="discussion_summary"),
+    path("hr/hire/", hire_employee, name="hire_employee"),
+    path("hr/fire/", fire_employee, name="fire_employee"),
+    path("hr/salary/", update_salary, name="update_salary"),
+    path("hr/bonus/", award_bonus, name="award_bonus"),
+    path("hr/employees/", list_employees, name="list_employees"),
+    path("hr/customers/", list_customers, name="list_customers"),
+    path("registration/request/", submit_registration_request, name="submit_registration"),
+    path("registration/requests/", get_registration_requests, name="get_registrations"),
+    path("registration/process/", process_registration_request, name="process_registration"),
+    path("account/close/", close_customer_account, name="close_account"),
+    path("account/quit/", customer_quit, name="customer_quit"),
 ]

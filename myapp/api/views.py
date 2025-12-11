@@ -32,8 +32,19 @@ from .serializers import(
     DeliveryReviewSerializer,
     ComplaintSerializer,
     ComplimentSerializer,
-    UserProfileSerializer
+    UserProfileSerializer,
+    HireEmployeeSerializer,
+    FireEmployeeSerializer,
+    UpdateSalarySerializer,
+    AwardBonusSerializer,
+    ChefListSerializer,
+    DeliveryPersonListSerializer,
+    CustomerListSerializer,
+    RegistrationRequestSerializer,
+    ProcessRegistrationSerializer,
+    CloseAccountSerializer,
 )
+from .models import RegistrationRequest
 
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -387,9 +398,9 @@ def create_delivery_bid(request):
 
     if not user.is_authenticated:
         return Response({"error": "Authentication required"}, status=401)
-    
+
     profile = user.userprofile
-    if profile.user_type !="manager":
+    if profile.user_type != "delivery":
         return Response({"error": "Only delivery personnel can bid"}, status=403)
     
     delivery_profile = profile.deliveryperson
@@ -1236,3 +1247,252 @@ def get_my_complaints(request):
         })
 
     return Response({"complaints": data}, status=200)
+
+@api_view(["POST"])
+@csrf_exempt
+def hire_employee(request):
+    """Manager hires a new chef or delivery person."""
+    if not request.user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    if request.user.userprofile.user_type != "manager":
+        return Response({"error": "Manager access required"}, status=403)
+
+    serializer = HireEmployeeSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    data = serializer.validated_data
+    if User.objects.filter(username=data["username"]).exists():
+        return Response({"error": "Username already exists"}, status=400)
+
+    new_user = User.objects.create_user(
+        username=data["username"],
+        email=data["email"],
+        password=data["password"]
+    )
+    UserProfile.objects.create(user=new_user, user_type=data["employee_type"])
+
+    emp = new_user.userprofile.chef if data["employee_type"] == "chef" else new_user.userprofile.deliveryperson
+    emp.salary = data["salary"]
+    emp.save()
+
+    return Response({"message": f"{data['employee_type'].capitalize()} hired", "id": emp.id}, status=201)
+
+
+@api_view(["POST"])
+@csrf_exempt
+def fire_employee(request):
+    """Manager fires a chef or delivery person."""
+    if not request.user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    if request.user.userprofile.user_type != "manager":
+        return Response({"error": "Manager access required"}, status=403)
+
+    serializer = FireEmployeeSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    data = serializer.validated_data
+    Model = Chef if data["employee_type"] == "chef" else DeliveryPerson
+
+    try:
+        emp = Model.objects.get(id=data["employee_id"])
+        username = emp.user_profile.user.username
+        emp.user_profile.user.delete()
+        return Response({"message": f"{data['employee_type'].capitalize()} '{username}' fired"}, status=200)
+    except Model.DoesNotExist:
+        return Response({"error": "Employee not found"}, status=404)
+
+
+@api_view(["POST"])
+@csrf_exempt
+def update_salary(request):
+    """Manager raises or cuts pay for employees."""
+    if not request.user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    if request.user.userprofile.user_type != "manager":
+        return Response({"error": "Manager access required"}, status=403)
+
+    serializer = UpdateSalarySerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    data = serializer.validated_data
+    Model = Chef if data["employee_type"] == "chef" else DeliveryPerson
+
+    try:
+        emp = Model.objects.get(id=data["employee_id"])
+        old_salary = emp.salary
+        change = old_salary * (data["amount"] / 100) if data["is_percentage"] else data["amount"]
+        emp.salary = old_salary + change if data["action"] == "raise" else max(Decimal("0"), old_salary - change)
+        emp.save()
+        return Response({"old_salary": str(old_salary), "new_salary": str(emp.salary)}, status=200)
+    except Model.DoesNotExist:
+        return Response({"error": "Employee not found"}, status=404)
+
+
+@api_view(["POST"])
+@csrf_exempt
+def award_bonus(request):
+    """Manager awards bonus to employee."""
+    if not request.user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    if request.user.userprofile.user_type != "manager":
+        return Response({"error": "Manager access required"}, status=403)
+
+    serializer = AwardBonusSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    data = serializer.validated_data
+    Model = Chef if data["employee_type"] == "chef" else DeliveryPerson
+
+    try:
+        emp = Model.objects.get(id=data["employee_id"])
+        emp.salary += data["bonus_amount"]
+        emp.save()
+        return Response({"message": "Bonus awarded", "new_salary": str(emp.salary)}, status=200)
+    except Model.DoesNotExist:
+        return Response({"error": "Employee not found"}, status=404)
+
+
+@api_view(["GET"])
+def list_employees(request):
+    """Manager views all employees."""
+    if not request.user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    if request.user.userprofile.user_type != "manager":
+        return Response({"error": "Manager access required"}, status=403)
+
+    return Response({
+        "chefs": ChefListSerializer(Chef.objects.all(), many=True).data,
+        "delivery_persons": DeliveryPersonListSerializer(DeliveryPerson.objects.all(), many=True).data
+    })
+
+
+@api_view(["GET"])
+def list_customers(request):
+    """Manager views all customers."""
+    if not request.user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    if request.user.userprofile.user_type != "manager":
+        return Response({"error": "Manager access required"}, status=403)
+
+    return Response({"customers": CustomerListSerializer(CustomerProfile.objects.all(), many=True).data})
+
+@api_view(["POST"])
+@csrf_exempt
+def submit_registration_request(request):
+    """Visitor submits registration request for manager approval."""
+    email = request.data.get("email")
+    name = request.data.get("name")
+
+    if not email or not name:
+        return Response({"error": "email and name are required"}, status=400)
+
+    if CustomerProfile.objects.filter(user_profile__user__email=email, is_blacklisted=True).exists():
+        return Response({"error": "This email is blacklisted"}, status=403)
+
+    if RegistrationRequest.objects.filter(email=email, status="pending").exists():
+        return Response({"error": "Request already pending"}, status=400)
+
+    req = RegistrationRequest.objects.create(email=email, name=name)
+    return Response({"message": "Request submitted", "request_id": req.id}, status=201)
+
+
+@api_view(["GET"])
+def get_registration_requests(request):
+    """Manager views pending registration requests."""
+    if not request.user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    if request.user.userprofile.user_type != "manager":
+        return Response({"error": "Manager access required"}, status=403)
+
+    reqs = RegistrationRequest.objects.filter(status="pending")
+    return Response({"requests": RegistrationRequestSerializer(reqs, many=True).data})
+
+
+@api_view(["POST"])
+@csrf_exempt
+def process_registration_request(request):
+    """Manager approves or rejects registration request."""
+    if not request.user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    if request.user.userprofile.user_type != "manager":
+        return Response({"error": "Manager access required"}, status=403)
+
+    serializer = ProcessRegistrationSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    data = serializer.validated_data
+    from django.utils import timezone
+
+    try:
+        req = RegistrationRequest.objects.get(id=data["request_id"], status="pending")
+    except RegistrationRequest.DoesNotExist:
+        return Response({"error": "Request not found or already processed"}, status=404)
+
+    req.status = data["decision"]
+    req.processed_by = request.user
+    req.processed_at = timezone.now()
+    req.save()
+
+    if data["decision"] == "approved":
+        if not data.get("password"):
+            return Response({"error": "Password required for approval"}, status=400)
+
+        new_user = User.objects.create_user(
+            username=req.email.split("@")[0],
+            email=req.email,
+            password=data["password"],
+            first_name=req.name
+        )
+        UserProfile.objects.create(user=new_user, user_type="registered")
+        return Response({"message": "Approved", "user_id": new_user.id}, status=200)
+
+    return Response({"message": "Rejected"}, status=200)
+
+@api_view(["POST"])
+@csrf_exempt
+def close_customer_account(request):
+    """Manager closes customer account (kicked/quit), clears deposit."""
+    if not request.user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+    if request.user.userprofile.user_type != "manager":
+        return Response({"error": "Manager access required"}, status=403)
+
+    serializer = CloseAccountSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    data = serializer.validated_data
+    try:
+        customer = CustomerProfile.objects.get(id=data["customer_id"])
+    except CustomerProfile.DoesNotExist:
+        return Response({"error": "Customer not found"}, status=404)
+
+    cleared = customer.deposit_balance
+    customer.deposit_balance = Decimal("0")
+    if data.get("reason") == "kicked":
+        customer.is_blacklisted = True
+    customer.save()
+
+    customer.user_profile.user.is_active = False
+    customer.user_profile.user.save()
+
+    return Response({"message": "Account closed", "cleared_deposit": str(cleared), "is_blacklisted": customer.is_blacklisted}, status=200)
+
+
+@api_view(["POST"])
+@csrf_exempt
+def customer_quit(request):
+    """Customer voluntarily quits the system."""
+    if not request.user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = request.user.userprofile
+    if profile.user_type not in ["registered", "vip"]:
+        return Response({"error": "Only customers can quit"}, status=403)
+
+    return Response({"message": "Quit request submitted. Manager will process your refund.", "deposit_balance": str(profile.customerprofile.deposit_balance)}, status=200)
