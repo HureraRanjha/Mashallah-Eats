@@ -191,7 +191,7 @@ class ChefListSerializer(serializers.ModelSerializer):
         model = Chef
         fields = ["id", "username", "email", "salary", "average_rating",
                   "complaint_count", "compliment_count", "demotion_count",
-                  "hired_at", "menu_items_count"]
+                  "hired_at", "menu_items_count", "eligible_for_bonus"]
 
     def get_menu_items_count(self, obj):
         return obj.menu_items.count()
@@ -206,7 +206,7 @@ class DeliveryPersonListSerializer(serializers.ModelSerializer):
         model = DeliveryPerson
         fields = ["id", "username", "email", "salary", "average_rating",
                   "complaint_count", "compliment_count", "demotion_count",
-                  "hired_at", "deliveries_count"]
+                  "hired_at", "deliveries_count", "eligible_for_bonus"]
 
     def get_deliveries_count(self, obj):
         return obj.deliveries.count()
@@ -240,3 +240,24 @@ class ProcessRegistrationSerializer(serializers.Serializer):
 class CloseAccountSerializer(serializers.Serializer):
     customer_id = serializers.IntegerField()
     reason = serializers.ChoiceField(choices=["kicked", "quit"], required=False)
+
+
+# ============================================
+# SEARCH & RECOMMENDATIONS SERIALIZERS
+# ============================================
+
+class MenuSearchResultSerializer(serializers.ModelSerializer):
+    chef_name = serializers.CharField(source="chef.user_profile.user.username", read_only=True)
+
+    class Meta:
+        model = MenuItem
+        fields = ["id", "name", "description", "price", "image_url", "average_rating", "chef_name", "is_vip_exclusive"]
+
+
+class TopChefSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source="user_profile.user.username")
+    total_orders = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Chef
+        fields = ["id", "name", "average_rating", "profile_picture", "total_orders"]

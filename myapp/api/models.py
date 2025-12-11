@@ -64,11 +64,18 @@ class CustomerProfile(models.Model):
     def check_vip_upgrade(self):
         """
         Check and upgrade to VIP if qualified.
-        Requirements: $100+ spent OR 3+ orders, no blacklist, warnings < 3
+        Requirements: $100+ spent OR 3+ orders, no blacklist, warnings < 3, no pending complaints
         Returns: True if upgraded, False otherwise
         """
+        from .models import Complaint
         if self.user_profile.user_type == 'registered':
-            if (self.total_spent >= 100 or self.order_count >= 3) and not self.is_blacklisted and self.warnings_count < 3:
+            # Check for pending complaints against this customer
+            has_pending_complaints = Complaint.objects.filter(
+                target_user=self.user_profile.user,
+                status='pending'
+            ).exists()
+
+            if (self.total_spent >= 100 or self.order_count >= 3) and not self.is_blacklisted and self.warnings_count < 3 and not has_pending_complaints:
                 self.user_profile.user_type = 'vip'
                 self.user_profile.save()
                 return True
@@ -147,6 +154,7 @@ class Chef(models.Model):
     complaint_count = models.IntegerField(default=0)
     compliment_count = models.IntegerField(default=0)
     hired_at = models.DateTimeField(auto_now_add=True)
+    profile_picture = models.URLField(blank=True, null=True)
 
     def __str__(self):
         return f"Chef: {self.user_profile.user.username}"
@@ -201,9 +209,16 @@ class Chef(models.Model):
         self.average_rating = new_rating
         self.save()
 
-        # Check if rating is too low
+        # Check if rating is too low -> demote
         if self.average_rating < 2.0:
             self.demote()
+
+        # Check if rating is high -> eligible for bonus (manager awards it)
+        if self.average_rating > 4.0:
+            self.eligible_for_bonus = True
+            self.save()
+
+    eligible_for_bonus = models.BooleanField(default=False)
 
 
 class DeliveryPerson(models.Model):
@@ -268,9 +283,16 @@ class DeliveryPerson(models.Model):
         self.average_rating = new_rating
         self.save()
 
-        # Check if rating is too low
+        # Check if rating is too low -> demote
         if self.average_rating < 2.0:
             self.demote()
+
+        # Check if rating is high -> eligible for bonus (manager awards it)
+        if self.average_rating > 4.0:
+            self.eligible_for_bonus = True
+            self.save()
+
+    eligible_for_bonus = models.BooleanField(default=False)
 
 
 # ============================================

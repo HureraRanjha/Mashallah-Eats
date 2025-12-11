@@ -43,6 +43,8 @@ from .serializers import(
     RegistrationRequestSerializer,
     ProcessRegistrationSerializer,
     CloseAccountSerializer,
+    MenuSearchResultSerializer,
+    TopChefSerializer,
 )
 from .models import RegistrationRequest
 
@@ -964,43 +966,50 @@ def get_profile(request):
 @api_view(["POST"])
 def chat_with_ai(request):
     """
-    Sends a message to Ollama (local LLM) and saves the conversation 
-    as a KnowledgeBaseEntry so it can be rated/managed.
+    First searches local KB for similar questions.
+    If found, returns KB answer. If not, delegates to LLM.
     """
     user = request.user
     if not user.is_authenticated:
         return Response({"error": "Authentication required"}, status=401)
 
-    # --- FIX 1: Get the message from the request ---
     user_message = request.data.get("message")
     if not user_message:
         return Response({"error": "Message is required"}, status=400)
 
-    ollama_host = os.getenv("OLLAMA_HOST") # Should be https://ollama.com
+    # Step 1: Search KB first (case-insensitive search in questions)
+    kb_match = KnowledgeBaseEntry.objects.filter(
+        question__icontains=user_message,
+        is_removed=False
+    ).order_by('-rating_count').first()
+
+    if kb_match:
+        return Response({
+            "response": kb_match.answer,
+            "entry_id": kb_match.id,
+            "source": "knowledge_base",
+            "message": "Please rate this answer"
+        })
+
+    # Step 2: No KB match - delegate to LLM
+    ollama_host = os.getenv("OLLAMA_HOST")
     ollama_key = os.getenv("OLLAMA_API_KEY")
 
     try:
-        # Create client exactly as the docs show for Cloud API
         client = Client(
             host=ollama_host,
             headers={'Authorization': f'Bearer {ollama_key}'}
         )
 
-        # The docs use specific cloud model names (e.g., 'gpt-oss:120b'). 
-        # Make sure you are using a model supported by their cloud. 
-        # You might need to check 'ollama.com/search?c=cloud' for valid names.
-        response = client.chat(model='gpt-oss:20b', messages=[ 
+        response = client.chat(model='gpt-oss:20b', messages=[
             {'role': 'user', 'content': user_message}
         ])
 
-        # --- FIX 2: Extract the actual text from the AI response object ---
         bot_response = response['message']['content']
 
-        # 2. Save to DB (KnowledgeBaseEntry)
-        # We store it immediately so we have an ID to attach a rating to later.
         kb_entry = KnowledgeBaseEntry.objects.create(
             author=user,
-            author_type="customer", # or "bot" if you add that choice to your model
+            author_type="customer",
             question=user_message,
             answer=bot_response,
             rating_sum=0,
@@ -1009,12 +1018,55 @@ def chat_with_ai(request):
 
         return Response({
             "response": bot_response,
-            "entry_id": kb_entry.id
+            "entry_id": kb_entry.id,
+            "source": "llm"
         })
 
     except Exception as e:
-        # This usually happens if Ollama isn't running
         return Response({"error": f"AI Error: {str(e)}. Is Ollama running?"}, status=503)
+
+
+@api_view(["POST"])
+@csrf_exempt
+def add_kb_entry(request):
+    """
+    Employees and customers can add knowledge to the KB.
+    Employees: provide knowledge about the restaurant
+    Customers: provide opinions and observations
+    """
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+
+    # Check if user is banned from contributing
+    if not profile.can_contribute_knowledge:
+        return Response({"error": "You are banned from contributing to the knowledge base"}, status=403)
+
+    # Only employees and customers can contribute
+    if profile.user_type not in ["registered", "vip", "chef", "delivery", "manager"]:
+        return Response({"error": "Not authorized to contribute"}, status=403)
+
+    question = request.data.get("question")
+    answer = request.data.get("answer")
+
+    if not question or not answer:
+        return Response({"error": "question and answer are required"}, status=400)
+
+    author_type = "employee" if profile.user_type in ["chef", "delivery", "manager"] else "customer"
+
+    entry = KnowledgeBaseEntry.objects.create(
+        author=user,
+        author_type=author_type,
+        question=question,
+        answer=answer
+    )
+
+    return Response({
+        "message": "Knowledge added successfully",
+        "entry_id": entry.id
+    }, status=201)
 
 
 @api_view(["POST"])
@@ -1089,16 +1141,28 @@ def manage_kb(request):
             })
         return Response({"flagged_entries": data})
 
-    # DELETE: Delete a specific entry
+    # DELETE: Delete a specific entry and ban the author
     if request.method == "DELETE":
         entry_id = request.data.get("entry_id")
+        ban_author = request.data.get("ban_author", True)  # Default: ban the author
+
         if not entry_id:
             return Response({"error": "entry_id required"}, status=400)
-        
+
         try:
             entry = KnowledgeBaseEntry.objects.get(id=entry_id)
+            author = entry.author
+
+            # Ban author from contributing if requested
+            if ban_author and author and hasattr(author, 'userprofile'):
+                author.userprofile.can_contribute_knowledge = False
+                author.userprofile.save()
+
             entry.delete()
-            return Response({"message": "Entry deleted successfully"})
+            return Response({
+                "message": "Entry deleted successfully",
+                "author_banned": ban_author and author is not None
+            })
         except KnowledgeBaseEntry.DoesNotExist:
             return Response({"error": "Entry not found"}, status=404)
         
@@ -1496,3 +1560,91 @@ def customer_quit(request):
         return Response({"error": "Only customers can quit"}, status=403)
 
     return Response({"message": "Quit request submitted. Manager will process your refund.", "deposit_balance": str(profile.customerprofile.deposit_balance)}, status=200)
+
+
+# ============================================
+# MENU SEARCH & RECOMMENDATIONS
+# ============================================
+
+@api_view(["GET"])
+def search_menu(request):
+    """Search menu items by name or description."""
+    from django.db.models import Q
+
+    query = request.GET.get("q", "")
+    if not query:
+        return Response({"error": "Search query 'q' is required"}, status=400)
+
+    items = MenuItem.objects.filter(Q(name__icontains=query) | Q(description__icontains=query))
+
+    # Filter VIP-exclusive for non-VIP users
+    if request.user.is_authenticated and hasattr(request.user, 'userprofile'):
+        if request.user.userprofile.user_type != 'vip':
+            items = items.filter(is_vip_exclusive=False)
+    else:
+        items = items.filter(is_vip_exclusive=False)
+
+    return Response({
+        "results": MenuSearchResultSerializer(items.distinct(), many=True).data,
+        "count": items.count()
+    })
+
+
+@api_view(["GET"])
+def get_recommendations(request):
+    """
+    Logged-in users: their most ordered + highest rated items.
+    Visitors: most popular + highest-rated dishes globally.
+    """
+    from django.db.models import Count, Avg
+
+    if request.user.is_authenticated and hasattr(request.user, 'userprofile'):
+        profile = request.user.userprofile
+        if profile.user_type in ['registered', 'vip']:
+            customer = profile.customerprofile
+
+            most_ordered = MenuItem.objects.filter(
+                orderitem__order__customer=customer
+            ).annotate(order_count=Count('orderitem')).order_by('-order_count')[:5]
+
+            highest_rated = MenuItem.objects.filter(
+                orderitem__ratings__customer=customer
+            ).annotate(user_rating=Avg('orderitem__ratings__rating')).order_by('-user_rating')[:5]
+
+            return Response({
+                "personalized": True,
+                "most_ordered": MenuSearchResultSerializer(most_ordered, many=True).data,
+                "highest_rated": MenuSearchResultSerializer(highest_rated, many=True).data
+            })
+
+    # Visitors/new customers - global popular dishes
+    most_popular = MenuItem.objects.filter(is_vip_exclusive=False).order_by('-total_orders')[:5]
+    highest_rated = MenuItem.objects.filter(is_vip_exclusive=False, average_rating__gt=0).order_by('-average_rating')[:5]
+
+    return Response({
+        "personalized": False,
+        "most_popular": MenuSearchResultSerializer(most_popular, many=True).data,
+        "highest_rated": MenuSearchResultSerializer(highest_rated, many=True).data
+    })
+
+
+@api_view(["GET"])
+def get_top_chefs(request):
+    """Get most ordered chef and top-rated chef (may or may not be the same)."""
+    from django.db.models import Sum
+
+    most_ordered = Chef.objects.annotate(
+        total_orders=Sum('menu_items__total_orders')
+    ).order_by('-total_orders').first()
+
+    top_rated = Chef.objects.filter(average_rating__gt=0).order_by('-average_rating').first()
+
+    result = {}
+    if most_ordered:
+        result["most_ordered_chef"] = TopChefSerializer(most_ordered).data
+    if top_rated:
+        result["top_rated_chef"] = TopChefSerializer(top_rated).data
+    if most_ordered and top_rated:
+        result["same_chef"] = most_ordered.id == top_rated.id
+
+    return Response(result)

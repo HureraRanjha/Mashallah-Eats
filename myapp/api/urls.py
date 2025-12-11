@@ -10,7 +10,8 @@ from .views import (
     hire_employee, fire_employee, update_salary, award_bonus,
     list_employees, list_customers,
     submit_registration_request, get_registration_requests, process_registration_request,
-    close_customer_account, customer_quit
+    close_customer_account, customer_quit, add_kb_entry,
+    search_menu, get_recommendations, get_top_chefs
 )
 
 urlpatterns = [
@@ -43,6 +44,7 @@ urlpatterns = [
     path("profile/", get_profile, name="profile"),
     path("chat/", chat_with_ai, name="chat_with_ai"),
     path("chat/rate/", rate_kb_entry, name="rate_kb"),
+    path("kb/add/", add_kb_entry, name="add_kb"),
     path("kb/manage/", manage_kb, name="manage_kb"),
     path("discussion_summary/", AIDiscussionReview, name="discussion_summary"),
     path("hr/hire/", hire_employee, name="hire_employee"),
@@ -56,4 +58,7 @@ urlpatterns = [
     path("registration/process/", process_registration_request, name="process_registration"),
     path("account/close/", close_customer_account, name="close_account"),
     path("account/quit/", customer_quit, name="customer_quit"),
+    path("search/", search_menu, name="search_menu"),
+    path("recommendations/", get_recommendations, name="recommendations"),
+    path("top-chefs/", get_top_chefs, name="top_chefs"),
 ]
