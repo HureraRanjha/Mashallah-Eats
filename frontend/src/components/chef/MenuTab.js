@@ -83,10 +83,6 @@ export default function MenuTab({ menuItems, onRefresh, onMessage }) {
   };
 
   const handleDelete = async (itemId) => {
-    if (!window.confirm("Are you sure you want to delete this item?")) {
-      return;
-    }
-
     setActionLoading(true);
 
     try {

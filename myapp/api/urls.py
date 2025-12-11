@@ -10,7 +10,7 @@ from .views import (
     hire_employee, fire_employee, update_salary, award_bonus,
     list_employees, list_customers, get_feedback_targets,
     submit_registration_request, get_registration_requests, process_registration_request,
-    close_customer_account, customer_quit, add_kb_entry,
+    close_customer_account, customer_quit, add_kb_entry, my_kb_entries,
     search_menu, get_recommendations, get_top_chefs, get_delivery_persons,
     # Delivery dashboard endpoints
     get_available_orders, get_my_bids, get_my_deliveries,
@@ -51,6 +51,7 @@ urlpatterns = [
     path("chat/", chat_with_ai, name="chat_with_ai"),
     path("chat/rate/", rate_kb_entry, name="rate_kb"),
     path("kb/add/", add_kb_entry, name="add_kb"),
+    path("kb/my-entries/", my_kb_entries, name="my_kb_entries"),
     path("kb/manage/", manage_kb, name="manage_kb"),
     path("discussion_summary/", AIDiscussionReview, name="discussion_summary"),
     path("hr/hire/", hire_employee, name="hire_employee"),

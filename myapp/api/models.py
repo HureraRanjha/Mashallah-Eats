@@ -92,11 +92,20 @@ class CustomerProfile(models.Model):
         - VIP: 2 warnings = demoted to registered (warnings cleared, progress reset)
         """
         self.warnings_count += 1
+        self.save()
+        return self.check_warning_consequences()
 
+    def check_warning_consequences(self):
+        """
+        Check and enforce warning consequences:
+        - Registered: 3 warnings = deregistered (blacklisted)
+        - VIP: 2 warnings = demoted to registered (warnings cleared, progress reset)
+        Call this to ensure warning rules are enforced even if warnings were set directly.
+        """
         # Check for deregistration (3 warnings for registered)
         if self.user_profile.user_type == 'registered' and self.warnings_count >= 3:
             self.is_blacklisted = True
-            # Manager should close account and clear deposit
+            self.save()
 
         # Check for VIP demotion (2 warnings for VIP)
         elif self.user_profile.user_type == 'vip' and self.warnings_count >= 2:
@@ -107,8 +116,8 @@ class CustomerProfile(models.Model):
             # Reset VIP progress - must re-qualify with 3 orders OR $100 spent
             self.order_count = 0
             self.vip_progress_spent = 0
+            self.save()
 
-        self.save()
         return self.warnings_count
 
     def remove_warning(self):

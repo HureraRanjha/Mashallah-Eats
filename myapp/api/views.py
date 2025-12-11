@@ -71,6 +71,9 @@ def DishListView(request):
         if profile.user_type in ["registered", "vip"]:
             customer = getattr(profile, "customerprofile", None)
             if customer:
+                # Enforce warning consequences (e.g., VIP with 2 warnings gets demoted)
+                customer.check_warning_consequences()
+                profile.refresh_from_db()  # Reload profile in case user_type changed
                 warnings_count = customer.warnings_count
                 current_balance = customer.deposit_balance
 
@@ -188,6 +191,14 @@ def create_topic(request):
     user = request.user
     if not user.is_authenticated:
         return Response({"error": "You must be logged in to create topics"}, status=401)
+
+    # Only customers (registered/VIP) can create discussion topics
+    try:
+        profile = user.userprofile
+        if profile.user_type not in ["registered", "vip"]:
+            return Response({"error": "Only customers can create discussion topics"}, status=403)
+    except UserProfile.DoesNotExist:
+        return Response({"error": "User profile not found"}, status=404)
 
     title = request.data.get("title")
     topic_type = request.data.get("topic_type", "general")
@@ -1476,6 +1487,13 @@ def get_profile(request):
     except UserProfile.DoesNotExist:
         return Response({"error": "User profile not found"}, status=404)
 
+    # Enforce warning consequences for customers (e.g., VIP with 2 warnings gets demoted)
+    if profile.user_type in ["registered", "vip"]:
+        customer = getattr(profile, "customerprofile", None)
+        if customer:
+            customer.check_warning_consequences()
+            profile.refresh_from_db()
+
     serializer = UserProfileSerializer(profile)
     return Response(serializer.data, status=200)
 
@@ -1645,6 +1663,32 @@ def add_kb_entry(request):
         "message": "Knowledge added successfully",
         "entry_id": entry.id
     }, status=201)
+
+
+@api_view(["GET"])
+def my_kb_entries(request):
+    """
+    Get the current user's KB entries.
+    """
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    entries = KnowledgeBaseEntry.objects.filter(author=user, is_removed=False).order_by('-created_at')
+
+    return Response({
+        "entries": [
+            {
+                "id": entry.id,
+                "question": entry.question,
+                "answer": entry.answer,
+                "average_rating": entry.average_rating,
+                "is_flagged": entry.is_flagged,
+                "created_at": entry.created_at.strftime("%Y-%m-%d %H:%M"),
+            }
+            for entry in entries
+        ]
+    })
 
 
 @api_view(["POST"])

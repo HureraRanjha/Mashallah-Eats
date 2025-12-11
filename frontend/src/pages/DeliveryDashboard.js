@@ -6,6 +6,7 @@ import {
   ActiveDeliveriesTab,
   HistoryTab,
   StatsTab,
+  KnowledgeTab,
 } from "../components/delivery";
 
 export default function DeliveryDashboard() {
@@ -28,6 +29,7 @@ export default function DeliveryDashboard() {
   const [activeDeliveries, setActiveDeliveries] = useState([]);
   const [completedDeliveries, setCompletedDeliveries] = useState([]);
   const [stats, setStats] = useState(null);
+  const [kbEntries, setKbEntries] = useState([]);
 
   // Loading & messages
   const [loading, setLoading] = useState(true);
@@ -65,6 +67,9 @@ export default function DeliveryDashboard() {
           break;
         case "stats":
           await fetchStats();
+          break;
+        case "knowledge":
+          await fetchKBEntries();
           break;
         default:
           break;
@@ -113,6 +118,14 @@ export default function DeliveryDashboard() {
     if (res.ok) setStats(data.stats || null);
   };
 
+  const fetchKBEntries = async () => {
+    const res = await fetch(`${API_BASE_URL}/kb/my-entries/`, {
+      credentials: "include",
+    });
+    const data = await res.json();
+    if (res.ok) setKbEntries(data.entries || []);
+  };
+
   // Message handler for child components
   const handleMessage = (type, message) => {
     if (type === "error") {
@@ -131,6 +144,7 @@ export default function DeliveryDashboard() {
       case "active": return fetchMyDeliveries;
       case "history": return fetchMyDeliveries;
       case "stats": return fetchStats;
+      case "knowledge": return fetchKBEntries;
       default: return () => {};
     }
   };
@@ -142,6 +156,7 @@ export default function DeliveryDashboard() {
       active: "Active Deliveries",
       history: "Delivery History",
       stats: "My Stats",
+      knowledge: "Knowledge Base",
     };
     return titles[activeTab] || "Delivery Dashboard";
   };
@@ -199,6 +214,13 @@ export default function DeliveryDashboard() {
               {activeTab === "stats" && (
                 <StatsTab
                   stats={stats}
+                />
+              )}
+              {activeTab === "knowledge" && (
+                <KnowledgeTab
+                  entries={kbEntries}
+                  onRefresh={getRefreshHandler()}
+                  onMessage={handleMessage}
                 />
               )}
             </>
