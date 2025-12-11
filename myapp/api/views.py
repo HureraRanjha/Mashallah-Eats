@@ -1814,7 +1814,7 @@ def AIDiscussionReview(request):
         topic_data = {
             "topic_id": discussion.id,
             "topic_title": discussion.title,
-            "author": discussion.author.user.username if discussion.author else "Unknown",
+            "author": discussion.author.username if discussion.author else "Unknown",
             "related_dish": discussion.related_dish.name if discussion.related_dish else None,
             "comments": post_contents
         }
