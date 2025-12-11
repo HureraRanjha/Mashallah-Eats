@@ -1,30 +1,57 @@
-// frontend/src/pages/DiscussionBoard.js
-import React from 'react';
+import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 export default function DiscussionBoard() {
-  // hardcoded dummy posts
-  const posts = [
-    { id: 1, title: "How many chicken nuggets?", body: "How can ahmed eat that many chicken nuggets?", comments: 5 },
-    { id: 2, title: "New dish ideas", body: "We should try a fusion menu for next week.", comments: 2 },
-    { id: 3, title: "Kitchen safety tips", body: "Any tips to avoid burning yourself?", comments: 3 },
-  ];
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadPosts = async () => {
+      try {
+        const res = await fetch("http://127.0.0.1:8000/api/discussion_board/", {
+          credentials: "include",
+        });
+        const data = await res.json();
+        setPosts(data.posts || []);
+      } catch (err) {
+        console.log("Failed to load posts");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPosts();
+  }, []);
+
+  if (loading) return <div className="p-6 text-center">Loading...</div>;
 
   return (
-    <div className="container mx-auto p-4 max-w-3xl">
+    <div className="container mx-auto max-w-3xl p-4">
       <h2 className="text-3xl font-bold mb-6 text-center">Discussion Board</h2>
-      
-      <div className="flex flex-col gap-6">
-        {posts.map((post) => (
-          <div key={post.id} className="card bg-base-100 shadow-xl p-4">
-            <h3 className="text-xl font-bold mb-2">{post.title}</h3>
-            <p className="mb-2">{post.body}</p>
-            <div className="flex justify-between items-center">
-              <span className="text-sm opacity-70">{post.comments} comments</span>
-              <button className="btn btn-primary btn-sm">View Comments</button>
+
+      <Link to="/discussion/new" className="btn btn-primary mb-4">
+        ➕ Create a Post
+      </Link>
+
+      {posts.length === 0 ? (
+        <p className="text-center opacity-70">No posts yet.</p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {posts.map((post) => (
+            <div key={post.id} className="card bg-base-100 shadow-lg p-4">
+              <h3 className="text-xl font-bold">{post.title}</h3>
+              <p className="opacity-70">{post.body}</p>
+
+              <Link
+                to={`/discussion/${post.id}`}
+                className="btn btn-sm btn-outline mt-3"
+              >
+                View Comments ({post.comments_count || 0})
+              </Link>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
