@@ -15,6 +15,7 @@ export default function RateOrder() {
   // Ratings state
   const [foodRatings, setFoodRatings] = useState({});
   const [deliveryRating, setDeliveryRating] = useState(0);
+  const [ratedItems, setRatedItems] = useState({});
 
   useEffect(() => {
     fetchOrderDetails();
@@ -31,6 +32,14 @@ export default function RateOrder() {
         const foundOrder = data.orders?.find(o => o.order_id === parseInt(orderId));
         if (foundOrder) {
           setOrder(foundOrder);
+          // Track already rated items
+          const rated = {};
+          foundOrder.items?.forEach(item => {
+            if (item.already_rated) {
+              rated[item.order_item_id] = true;
+            }
+          });
+          setRatedItems(rated);
         } else {
           setErrorMsg("Order not found");
         }
@@ -65,7 +74,7 @@ export default function RateOrder() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          order_item: orderItemId,
+          order_item: parseInt(orderItemId),
           rating: rating,
         }),
       });
@@ -74,9 +83,10 @@ export default function RateOrder() {
 
       if (response.ok) {
         setSuccessMsg("Food rating submitted!");
+        setRatedItems(prev => ({ ...prev, [orderItemId]: true }));
         setTimeout(() => setSuccessMsg(""), 3000);
       } else {
-        setErrorMsg(data.error || "Failed to submit rating");
+        setErrorMsg(data.error || JSON.stringify(data));
       }
     } catch (error) {
       console.error(error);
@@ -101,7 +111,7 @@ export default function RateOrder() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          order: orderId,
+          order: parseInt(orderId),
           rating: deliveryRating,
         }),
       });
@@ -112,7 +122,7 @@ export default function RateOrder() {
         setSuccessMsg("Delivery rating submitted!");
         setTimeout(() => navigate("/profile"), 2000);
       } else {
-        setErrorMsg(data.error || "Failed to submit rating");
+        setErrorMsg(data.error || JSON.stringify(data));
       }
     } catch (error) {
       console.error(error);
@@ -175,24 +185,40 @@ export default function RateOrder() {
       <div className="card bg-base-100 shadow-xl mb-6">
         <div className="card-body">
           <h3 className="card-title">Rate Your Food</h3>
-          <p className="text-sm opacity-70 mb-4">How was the quality of your food?</p>
+          <p className="text-sm opacity-70 mb-4">How was the quality of each item?</p>
 
-          {/* Since we don't have individual items from history, show general food rating */}
-          <div className="flex items-center justify-between p-4 bg-base-200 rounded-lg">
-            <span className="font-semibold">Food Quality</span>
-            <div className="flex items-center gap-4">
-              <StarRating
-                value={foodRatings["general"] || 0}
-                onChange={(rating) => handleFoodRating("general", rating)}
-              />
-              <button
-                className={`btn btn-sm btn-primary ${submitting ? "loading" : ""}`}
-                onClick={() => submitFoodRating("general")}
-                disabled={submitting || !foodRatings["general"]}
-              >
-                Submit
-              </button>
-            </div>
+          <div className="space-y-4">
+            {order.items && order.items.length > 0 ? (
+              order.items.map((item) => (
+                <div key={item.order_item_id} className="flex items-center justify-between p-4 bg-base-200 rounded-lg">
+                  <div>
+                    <span className="font-semibold">{item.name}</span>
+                    <span className="text-sm opacity-70 ml-2">x{item.quantity}</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    {ratedItems[item.order_item_id] ? (
+                      <span className="badge badge-success">Rated</span>
+                    ) : (
+                      <>
+                        <StarRating
+                          value={foodRatings[item.order_item_id] || 0}
+                          onChange={(rating) => handleFoodRating(item.order_item_id, rating)}
+                        />
+                        <button
+                          className={`btn btn-sm btn-primary ${submitting ? "loading" : ""}`}
+                          onClick={() => submitFoodRating(item.order_item_id)}
+                          disabled={submitting || !foodRatings[item.order_item_id]}
+                        >
+                          Submit
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-center opacity-70">No items to rate</p>
+            )}
           </div>
         </div>
       </div>
@@ -207,17 +233,23 @@ export default function RateOrder() {
             <div className="flex items-center justify-between p-4 bg-base-200 rounded-lg">
               <span className="font-semibold">Delivery Service</span>
               <div className="flex items-center gap-4">
-                <StarRating
-                  value={deliveryRating}
-                  onChange={setDeliveryRating}
-                />
-                <button
-                  className={`btn btn-sm btn-primary ${submitting ? "loading" : ""}`}
-                  onClick={submitDeliveryRating}
-                  disabled={submitting || !deliveryRating}
-                >
-                  Submit
-                </button>
+                {order.delivery_rated ? (
+                  <span className="badge badge-success">Rated</span>
+                ) : (
+                  <>
+                    <StarRating
+                      value={deliveryRating}
+                      onChange={setDeliveryRating}
+                    />
+                    <button
+                      className={`btn btn-sm btn-primary ${submitting ? "loading" : ""}`}
+                      onClick={submitDeliveryRating}
+                      disabled={submitting || !deliveryRating}
+                    >
+                      Submit
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

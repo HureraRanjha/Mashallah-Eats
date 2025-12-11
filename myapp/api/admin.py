@@ -63,8 +63,9 @@ class ComplimentAdmin(admin.ModelAdmin):
 
 @admin.register(RegistrationRequest)
 class RegistrationRequestAdmin(admin.ModelAdmin):
-    list_display = ['id', 'email', 'name', 'status', 'processed_by', 'created_at']
+    list_display = ['id', 'username', 'email', 'first_name', 'last_name', 'status', 'processed_by', 'created_at']
     list_filter = ['status']
+    search_fields = ['username', 'email', 'first_name', 'last_name']
 
 @admin.register(Transaction)
 class TransactionAdmin(admin.ModelAdmin):

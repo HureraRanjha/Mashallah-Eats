@@ -87,15 +87,34 @@ class OrderWithBidsSerializer(serializers.ModelSerializer):
 
 
 class ComplaintSerializer(serializers.ModelSerializer):
+    complainant = serializers.CharField(source='complainant.username', read_only=True)
+    target = serializers.CharField(source='target_user.username', read_only=True)
+    is_vip = serializers.SerializerMethodField()
+    created_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M", read_only=True)
+
     class Meta:
         model = Complaint
-        fields = "__all__"
+        fields = [
+            'id', 'complainant', 'target', 'target_type', 'description',
+            'status', 'dispute_text', 'manager_decision', 'weight',
+            'is_vip', 'created_at'
+        ]
+
+    def get_is_vip(self, obj):
+        return obj.weight == 2
 
 
 class ComplimentSerializer(serializers.ModelSerializer):
+    author = serializers.CharField(source='author.username', read_only=True)
+    target = serializers.CharField(source='target_user.username', read_only=True)
+    created_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M", read_only=True)
+
     class Meta:
         model = Compliment
-        fields = "__all__"
+        fields = [
+            'id', 'author', 'target', 'target_type', 'description',
+            'status', 'weight', 'created_at'
+        ]
 
 
 # Profile Serializers

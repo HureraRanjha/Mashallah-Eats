@@ -11,3 +11,5 @@ package-lock.json
 .cache/
 build/
 dist/
+docs/REQUIREMENTS.md
+.claude

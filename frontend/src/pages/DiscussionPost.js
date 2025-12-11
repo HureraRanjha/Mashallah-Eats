@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config";
 import { useAuth } from "../context/AuthContext";
 
 export default function DiscussionPost() {
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, getUserType } = useAuth();
+  const navigate = useNavigate();
 
   const [post, setPost] = useState(null);
   const [comments, setComments] = useState([]);
@@ -13,6 +14,20 @@ export default function DiscussionPost() {
   const [newComment, setNewComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  const userType = getUserType();
+  const currentUsername = user?.user?.username || user?.username || "";
+  const canReport = userType === "registered" || userType === "vip";
+
+  // Build report URL with query params
+  const getReportUrl = (authorUsername, contentPreview) => {
+    const params = new URLSearchParams({
+      targetType: "customer",
+      username: authorUsername,
+      context: contentPreview.substring(0, 100) + (contentPreview.length > 100 ? "..." : ""),
+    });
+    return `/complaint?${params.toString()}`;
+  };
 
   useEffect(() => {
     loadPost();
@@ -89,7 +104,22 @@ export default function DiscussionPost() {
       {/* Post Card */}
       <div className="card bg-base-100 shadow-xl mb-6">
         <div className="card-body">
-          <h2 className="card-title text-2xl">{post.title}</h2>
+          <div className="flex justify-between items-start">
+            <h2 className="card-title text-2xl">{post.title}</h2>
+            {/* Report button - only show if can report and not own post */}
+            {canReport && post.author && post.author !== currentUsername && (
+              <Link
+                to={getReportUrl(post.author, `Post: ${post.title}\n${post.body}`)}
+                className="btn btn-ghost btn-sm text-error"
+                title="Report this post"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                </svg>
+                Report
+              </Link>
+            )}
+          </div>
           <div className="flex gap-2 text-sm opacity-70 mb-2">
             <span>Posted by {post.author || "Anonymous"}</span>
             {post.created_at && <span>• {post.created_at}</span>}
@@ -143,7 +173,21 @@ export default function DiscussionPost() {
                 <div key={comment.id} className="p-4 bg-base-200 rounded-lg">
                   <div className="flex justify-between items-start mb-2">
                     <span className="font-semibold">{comment.author || "Anonymous"}</span>
-                    <span className="text-xs opacity-70">{comment.created_at}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs opacity-70">{comment.created_at}</span>
+                      {/* Report button for comment */}
+                      {canReport && comment.author && comment.author !== currentUsername && (
+                        <Link
+                          to={getReportUrl(comment.author, `Comment on "${post.title}":\n${comment.body}`)}
+                          className="btn btn-ghost btn-xs text-error"
+                          title="Report this comment"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                          </svg>
+                        </Link>
+                      )}
+                    </div>
                   </div>
                   <p className="whitespace-pre-wrap">{comment.body}</p>
                 </div>

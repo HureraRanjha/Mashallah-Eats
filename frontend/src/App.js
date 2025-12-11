@@ -6,7 +6,7 @@ import './App.css';
 import { AuthProvider } from './context/AuthContext';
 
 // Components
-import Navbar from './components/Navbar';
+import AppLayout from './components/AppLayout';
 import Chatbox from './components/Chatbox';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -28,9 +28,7 @@ function App() {
   return (
     <AuthProvider>
       <Router>
-        <div className="min-h-screen bg-base-200">
-          <Navbar />
-
+        <AppLayout>
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<Menu />} />
@@ -38,15 +36,10 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/menu" element={<Menu />} />
 
-            {/* Protected routes - any logged in user */}
+            {/* Customer-only routes */}
             <Route path="/cart" element={
-              <ProtectedRoute>
+              <ProtectedRoute allowedRoles={['registered', 'vip']}>
                 <Cart />
-              </ProtectedRoute>
-            } />
-            <Route path="/profile" element={
-              <ProtectedRoute>
-                <Profile />
               </ProtectedRoute>
             } />
             <Route path="/deposit" element={
@@ -57,6 +50,13 @@ function App() {
             <Route path="/rate/:orderId" element={
               <ProtectedRoute allowedRoles={['registered', 'vip']}>
                 <RateOrder />
+              </ProtectedRoute>
+            } />
+
+            {/* Protected routes - any logged in user */}
+            <Route path="/profile" element={
+              <ProtectedRoute>
+                <Profile />
               </ProtectedRoute>
             } />
             <Route path="/complaint" element={
@@ -70,7 +70,7 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="/discussion/new" element={
-              <ProtectedRoute>
+              <ProtectedRoute allowedRoles={['registered', 'vip']}>
                 <NewPost />
               </ProtectedRoute>
             } />
@@ -80,16 +80,35 @@ function App() {
               </ProtectedRoute>
             } />
 
-            {/* Manager only */}
+            {/* Manager routes */}
             <Route path="/manager-dashboard" element={
               <ProtectedRoute allowedRoles={['manager']}>
                 <ManagerDashboard />
               </ProtectedRoute>
             } />
+            <Route path="/manager/:section" element={
+              <ProtectedRoute allowedRoles={['manager']}>
+                <ManagerDashboard />
+              </ProtectedRoute>
+            } />
+
+            {/* Chef routes (placeholder for future) */}
+            <Route path="/chef/:section" element={
+              <ProtectedRoute allowedRoles={['chef']}>
+                <div className="text-center py-8">Chef Dashboard - Coming Soon</div>
+              </ProtectedRoute>
+            } />
+
+            {/* Delivery routes (placeholder for future) */}
+            <Route path="/delivery/:section" element={
+              <ProtectedRoute allowedRoles={['delivery']}>
+                <div className="text-center py-8">Delivery Dashboard - Coming Soon</div>
+              </ProtectedRoute>
+            } />
           </Routes>
 
           <Chatbox />
-        </div>
+        </AppLayout>
       </Router>
     </AuthProvider>
   );

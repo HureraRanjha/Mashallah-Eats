@@ -321,9 +321,10 @@ def order_food(request):
 
             # Deduct money
             customer_profile.deposit_balance -= grand_total
-            customer_profile.total_spent += grand_total
+            customer_profile.total_spent += grand_total  # Lifetime spending (never resets)
+            customer_profile.vip_progress_spent += grand_total  # VIP progress (resets on demotion)
             customer_profile.order_count += 1
-            
+
             # Check for VIP upgrade (Your Logic)
             upgraded = customer_profile.check_vip_upgrade()
             customer_profile.save()
@@ -745,14 +746,40 @@ def order_history(request):
     for order in orders:
         items = order.items.all()
         item_names = [f"{i.quantity}x {i.menu_item.name}" for i in items]
-        
+
+        # Include individual items with IDs for rating
+        items_detail = []
+        for item in items:
+            # Check if already rated
+            already_rated = FoodRating.objects.filter(
+                order_item=item,
+                customer=customer_profile
+            ).exists()
+
+            items_detail.append({
+                "order_item_id": item.id,
+                "menu_item_id": item.menu_item.id,
+                "name": item.menu_item.name,
+                "quantity": item.quantity,
+                "price": str(item.price_at_time),
+                "already_rated": already_rated
+            })
+
+        # Check if delivery already rated
+        delivery_rated = DeliveryRating.objects.filter(
+            order=order,
+            customer=customer_profile
+        ).exists()
+
         data.append({
             "order_id": order.id,
-            "status": order.get_status_display(), # Shows "Pending" instead of "pending"
-            "total_price": order.total_price,
+            "status": order.get_status_display(),
+            "total_price": str(order.total_price),
             "date": order.created_at.strftime("%Y-%m-%d %H:%M"),
             "items_summary": ", ".join(item_names),
-            "is_delivered": order.status == 'delivered'
+            "items": items_detail,
+            "is_delivered": order.status == 'delivered',
+            "delivery_rated": delivery_rated
         })
 
     return Response({"orders": data})
@@ -863,13 +890,14 @@ def get_complaints(request):
     user = request.user
     if not user.is_authenticated:
         return Response({"error": "Authentication required"}, status=401)
-    
+
     profile = user.userprofile
     if profile.user_type != "manager":
         return Response({"error": "Only managers can view complaints"}, status=403)
-    
-    pending_complaints = Complaint.objects.filter(status="pending")
-    serializer = ComplaintSerializer(pending_complaints, many=True)
+
+    # Return all complaints (pending, disputed, upheld, dismissed) for manager to filter
+    all_complaints = Complaint.objects.all().order_by('-created_at')
+    serializer = ComplaintSerializer(all_complaints, many=True)
     return Response({"complaints": serializer.data})
 
 
@@ -1346,10 +1374,10 @@ def rate_kb_entry(request):
         return Response({"error": "Entry not found"}, status=404)
 
 
-@api_view(["GET", "DELETE"])
+@api_view(["GET", "POST", "DELETE"])
 def manage_kb(request):
     """
-    Manager only: View flagged entries (GET) or delete bad ones (DELETE).
+    Manager only: View flagged entries (GET) or delete bad ones (POST/DELETE).
     """
     user = request.user
     if not user.is_authenticated:
@@ -1361,20 +1389,21 @@ def manage_kb(request):
 
     # GET: List all flagged entries
     if request.method == "GET":
-        flagged_entries = KnowledgeBaseEntry.objects.filter(is_flagged=True)
+        flagged_entries = KnowledgeBaseEntry.objects.filter(is_flagged=True, is_removed=False)
         data = []
         for entry in flagged_entries:
             data.append({
                 "id": entry.id,
                 "question": entry.question,
                 "answer": entry.answer,
+                "author": entry.author.username if entry.author else "Unknown",
                 "flagged_count": entry.flagged_count,
-                "created_at": entry.created_at
+                "created_at": entry.created_at.strftime("%Y-%m-%d %H:%M") if entry.created_at else None
             })
-        return Response({"flagged_entries": data})
+        return Response({"entries": data})
 
-    # DELETE: Delete a specific entry and ban the author
-    if request.method == "DELETE":
+    # POST/DELETE: Delete a specific entry and ban the author
+    if request.method in ["POST", "DELETE"]:
         entry_id = request.data.get("entry_id")
         ban_author = request.data.get("ban_author", True)  # Default: ban the author
 
@@ -1701,7 +1730,7 @@ def list_employees(request):
 @api_view(["GET"])
 def get_feedback_targets(request):
     """
-    Get list of chefs and delivery people that customers can file complaints/compliments about.
+    Get list of chefs, delivery people, and customers that users can file complaints/compliments about.
     This is a public endpoint for any authenticated user.
     """
     if not request.user.is_authenticated:
@@ -1727,9 +1756,22 @@ def get_feedback_targets(request):
         for dp in delivery_people
     ]
 
+    # Get all customers (excluding current user) for forum behavior complaints
+    customers = CustomerProfile.objects.select_related('user_profile__user').exclude(
+        user_profile__user=request.user
+    )
+    customer_data = [
+        {
+            "id": customer.id,
+            "username": customer.user_profile.user.username,
+        }
+        for customer in customers
+    ]
+
     return Response({
         "chefs": chef_data,
-        "delivery_people": delivery_data
+        "delivery_people": delivery_data,
+        "customers": customer_data
     })
 
 
@@ -1747,19 +1789,46 @@ def list_customers(request):
 @csrf_exempt
 def submit_registration_request(request):
     """Visitor submits registration request for manager approval."""
+    from django.contrib.auth.hashers import make_password
+
+    username = request.data.get("username")
     email = request.data.get("email")
-    name = request.data.get("name")
+    first_name = request.data.get("first_name")
+    last_name = request.data.get("last_name")
+    password = request.data.get("password")
 
-    if not email or not name:
-        return Response({"error": "email and name are required"}, status=400)
+    if not username or not email or not first_name or not last_name or not password:
+        return Response({"error": "username, email, first_name, last_name, and password are required"}, status=400)
 
+    if len(password) < 6:
+        return Response({"error": "Password must be at least 6 characters"}, status=400)
+
+    # Check if email is blacklisted
     if CustomerProfile.objects.filter(user_profile__user__email=email, is_blacklisted=True).exists():
         return Response({"error": "This email is blacklisted"}, status=403)
 
-    if RegistrationRequest.objects.filter(email=email, status="pending").exists():
-        return Response({"error": "Request already pending"}, status=400)
+    # Check if username already exists
+    if User.objects.filter(username=username).exists():
+        return Response({"error": "Username already taken"}, status=400)
 
-    req = RegistrationRequest.objects.create(email=email, name=name)
+    # Check if email already exists
+    if User.objects.filter(email=email).exists():
+        return Response({"error": "Email already registered"}, status=400)
+
+    # Check for pending requests
+    if RegistrationRequest.objects.filter(email=email, status="pending").exists():
+        return Response({"error": "A request with this email is already pending"}, status=400)
+
+    if RegistrationRequest.objects.filter(username=username, status="pending").exists():
+        return Response({"error": "A request with this username is already pending"}, status=400)
+
+    req = RegistrationRequest.objects.create(
+        username=username,
+        email=email,
+        first_name=first_name,
+        last_name=last_name,
+        password_hash=make_password(password)
+    )
     return Response({"message": "Request submitted", "request_id": req.id}, status=201)
 
 
@@ -1771,8 +1840,28 @@ def get_registration_requests(request):
     if request.user.userprofile.user_type != "manager":
         return Response({"error": "Manager access required"}, status=403)
 
-    reqs = RegistrationRequest.objects.filter(status="pending")
-    return Response({"requests": RegistrationRequestSerializer(reqs, many=True).data})
+    reqs = RegistrationRequest.objects.filter(status="pending").order_by('-created_at')
+
+    # Build response with blacklist check
+    data = []
+    for req in reqs:
+        # Check if this email belongs to a blacklisted customer
+        is_blacklisted = CustomerProfile.objects.filter(
+            user_profile__user__email=req.email,
+            is_blacklisted=True
+        ).exists()
+        data.append({
+            "id": req.id,
+            "username": req.username,
+            "email": req.email,
+            "first_name": req.first_name,
+            "last_name": req.last_name,
+            "name": f"{req.first_name} {req.last_name}",  # For backward compatibility
+            "created_at": req.created_at.strftime("%Y-%m-%d %H:%M") if req.created_at else None,
+            "is_blacklisted": is_blacklisted
+        })
+
+    return Response({"requests": data})
 
 
 @api_view(["POST"])
@@ -1802,17 +1891,28 @@ def process_registration_request(request):
     req.save()
 
     if data["decision"] == "approved":
-        if not data.get("password"):
-            return Response({"error": "Password required for approval"}, status=400)
+        # Check again that username/email aren't taken
+        if User.objects.filter(username=req.username).exists():
+            return Response({"error": "Username already taken"}, status=400)
+        if User.objects.filter(email=req.email).exists():
+            return Response({"error": "Email already registered"}, status=400)
 
-        new_user = User.objects.create_user(
-            username=req.email.split("@")[0],
+        # Create user with the pre-hashed password from registration request
+        new_user = User(
+            username=req.username,
             email=req.email,
-            password=data["password"],
-            first_name=req.name
+            first_name=req.first_name,
+            last_name=req.last_name
         )
+        new_user.password = req.password_hash  # Set the already-hashed password directly
+        new_user.save()
+
         UserProfile.objects.create(user=new_user, user_type="registered")
-        return Response({"message": "Approved", "user_id": new_user.id}, status=200)
+        return Response({
+            "message": "Approved",
+            "user_id": new_user.id,
+            "username": new_user.username
+        }, status=200)
 
     return Response({"message": "Rejected"}, status=200)
 

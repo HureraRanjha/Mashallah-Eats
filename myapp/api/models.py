@@ -48,8 +48,9 @@ class CustomerProfile(models.Model):
     """Only for registered and VIP customers"""
     user_profile = models.OneToOneField(UserProfile, on_delete=models.CASCADE)
     warnings_count = models.IntegerField(default=0)
-    total_spent = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    order_count = models.IntegerField(default=0)
+    total_spent = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # Lifetime spending (never resets)
+    vip_progress_spent = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # Spending towards VIP (resets on demotion)
+    order_count = models.IntegerField(default=0)  # Orders towards VIP (resets on demotion)
     is_blacklisted = models.BooleanField(default=False)
     deposit_balance = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     vip_free_deliveries_remaining = models.IntegerField(default=0)
@@ -64,7 +65,7 @@ class CustomerProfile(models.Model):
     def check_vip_upgrade(self):
         """
         Check and upgrade to VIP if qualified.
-        Requirements: $100+ spent OR 3+ orders, no blacklist, warnings < 3, no pending complaints
+        Requirements: $100+ progress spent OR 3+ orders, no blacklist, warnings < 3, no pending complaints
         Returns: True if upgraded, False otherwise
         """
         from .models import Complaint
@@ -75,7 +76,7 @@ class CustomerProfile(models.Model):
                 status='pending'
             ).exists()
 
-            if (self.total_spent >= 100 or self.order_count >= 3) and not self.is_blacklisted and self.warnings_count < 3 and not has_pending_complaints:
+            if (self.vip_progress_spent >= 100 or self.order_count >= 3) and not self.is_blacklisted and self.warnings_count < 3 and not has_pending_complaints:
                 self.user_profile.user_type = 'vip'
                 self.user_profile.save()
                 return True
@@ -85,7 +86,7 @@ class CustomerProfile(models.Model):
         """
         Add a warning and handle consequences:
         - Registered: 3 warnings = deregistered (blacklisted)
-        - VIP: 2 warnings = demoted to registered (warnings cleared)
+        - VIP: 2 warnings = demoted to registered (warnings cleared, progress reset)
         """
         self.warnings_count += 1
 
@@ -100,6 +101,9 @@ class CustomerProfile(models.Model):
             self.user_profile.save()
             self.warnings_count = 0  # Clear warnings per requirements
             self.vip_free_deliveries_remaining = 0
+            # Reset VIP progress - must re-qualify with 3 orders OR $100 spent
+            self.order_count = 0
+            self.vip_progress_spent = 0
 
         self.save()
         return self.warnings_count
@@ -691,15 +695,33 @@ class RegistrationRequest(models.Model):
         ('rejected', 'Rejected'),
     ]
 
-    email = models.EmailField(unique=True)
-    name = models.CharField(max_length=255)
+    username = models.CharField(max_length=150, default="")
+    email = models.EmailField()
+    first_name = models.CharField(max_length=150, default="")
+    last_name = models.CharField(max_length=150, default="")
+    password_hash = models.CharField(max_length=128, default="")  # Stores hashed password from user
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
     processed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='registrations_processed')
     processed_at = models.DateTimeField(null=True, blank=True)
 
+    class Meta:
+        # Only one pending request per email or username
+        constraints = [
+            models.UniqueConstraint(
+                fields=['email'],
+                condition=models.Q(status='pending'),
+                name='unique_pending_email'
+            ),
+            models.UniqueConstraint(
+                fields=['username'],
+                condition=models.Q(status='pending'),
+                name='unique_pending_username'
+            ),
+        ]
+
     def __str__(self):
-        return f"Registration: {self.email} ({self.status})"
+        return f"Registration: {self.username} ({self.status})"
 
 
 # ============================================

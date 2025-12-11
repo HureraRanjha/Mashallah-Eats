@@ -7,11 +7,16 @@ export default function Complaint() {
   const navigate = useNavigate();
   const orderId = searchParams.get("order");
 
+  // URL params for pre-filling from discussion board reports
+  const reportTargetType = searchParams.get("targetType");
+  const reportTargetUsername = searchParams.get("username");
+  const reportContext = searchParams.get("context");
+
   const [activeTab, setActiveTab] = useState("file"); // "file" or "my"
   const [type, setType] = useState("complaint"); // "complaint" or "compliment"
-  const [targetType, setTargetType] = useState("chef"); // "chef", "delivery", "customer"
-  const [targetId, setTargetId] = useState("");
-  const [description, setDescription] = useState("");
+  const [targetType, setTargetType] = useState(reportTargetType || "chef"); // "chef", "delivery", "customer"
+  const [targetId, setTargetId] = useState(reportTargetUsername || "");
+  const [description, setDescription] = useState(reportContext ? `Regarding discussion post/comment:\n"${reportContext}"\n\nReason for report:\n` : "");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -19,6 +24,7 @@ export default function Complaint() {
   // Available targets based on type
   const [chefs, setChefs] = useState([]);
   const [deliveryPeople, setDeliveryPeople] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [loadingTargets, setLoadingTargets] = useState(false);
 
   // My complaints (filed by me and against me) and compliments
@@ -38,7 +44,7 @@ export default function Complaint() {
   const fetchTargets = async () => {
     setLoadingTargets(true);
     try {
-      // Fetch feedback targets (chefs and delivery people)
+      // Fetch feedback targets (chefs, delivery people, and customers)
       const response = await fetch(`${API_BASE_URL}/feedback-targets/`, {
         credentials: "include",
       });
@@ -47,6 +53,15 @@ export default function Complaint() {
       if (response.ok) {
         setChefs(data.chefs || []);
         setDeliveryPeople(data.delivery_people || []);
+        setCustomers(data.customers || []);
+
+        // If coming from a report link, pre-select the customer by username
+        if (reportTargetType === "customer" && reportTargetUsername && data.customers) {
+          const matchedCustomer = data.customers.find(c => c.username === reportTargetUsername);
+          if (matchedCustomer) {
+            setTargetId(matchedCustomer.username);
+          }
+        }
       }
     } catch (error) {
       console.error("Failed to load targets:", error);
@@ -85,7 +100,7 @@ export default function Complaint() {
       return;
     }
 
-    if (!targetId && targetType !== "customer") {
+    if (!targetId) {
       setErrorMsg("Please select a person");
       return;
     }
@@ -165,6 +180,8 @@ export default function Complaint() {
       return chefs.map(c => ({ id: c.id, name: c.username }));
     } else if (targetType === "delivery") {
       return deliveryPeople.map(d => ({ id: d.id, name: d.username }));
+    } else if (targetType === "customer") {
+      return customers.map(c => ({ id: c.username, name: c.username }));
     }
     return [];
   };
@@ -253,42 +270,29 @@ export default function Complaint() {
             </div>
 
             {/* Target Person Selection */}
-            {targetType !== "customer" ? (
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">Select Person</span>
-                </label>
-                {loadingTargets ? (
-                  <div className="text-center py-2">Loading...</div>
-                ) : (
-                  <select
-                    className="select select-bordered"
-                    value={targetId}
-                    onChange={(e) => setTargetId(e.target.value)}
-                  >
-                    <option value="">-- Select --</option>
-                    {getTargetOptions().map(target => (
-                      <option key={target.id} value={target.id}>
-                        {target.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            ) : (
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">Customer Username</span>
-                </label>
-                <input
-                  type="text"
-                  className="input input-bordered"
-                  placeholder="Enter customer's username"
+            <div className="form-control">
+              <label className="label">
+                <span className="label-text">
+                  Select {targetType === "chef" ? "Chef" : targetType === "delivery" ? "Delivery Person" : "Customer"}
+                </span>
+              </label>
+              {loadingTargets ? (
+                <div className="text-center py-2">Loading...</div>
+              ) : (
+                <select
+                  className="select select-bordered"
                   value={targetId}
                   onChange={(e) => setTargetId(e.target.value)}
-                />
-              </div>
-            )}
+                >
+                  <option value="">-- Select --</option>
+                  {getTargetOptions().map(target => (
+                    <option key={target.id} value={target.id}>
+                      {target.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
 
             {/* Order Reference */}
             {orderId && (

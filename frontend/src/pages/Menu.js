@@ -4,7 +4,7 @@ import { API_BASE_URL } from "../config";
 import { useAuth } from "../context/AuthContext";
 
 export default function Menu() {
-  const { user } = useAuth();
+  const { user, getUserType } = useAuth();
   const [dishes, setDishes] = useState([]);
   const [filteredDishes, setFilteredDishes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -18,6 +18,10 @@ export default function Menu() {
   // Cart feedback
   const [addedToCart, setAddedToCart] = useState(null);
 
+  const userType = getUserType();
+  const isVip = userType === "vip";
+  const canOrder = userType === "registered" || userType === "vip";
+
   useEffect(() => {
     fetchDishes();
     fetchRecommendations();
@@ -25,11 +29,12 @@ export default function Menu() {
   }, []);
 
   useEffect(() => {
-    // Filter locally when search query changes
+    // Filter dishes: hide VIP exclusive dishes for non-VIP users
     if (!searchQuery.trim()) {
-      setFilteredDishes(dishes);
+      const filtered = dishes.filter(dish => !dish.is_vip_exclusive || isVip);
+      setFilteredDishes(filtered);
     }
-  }, [dishes, searchQuery]);
+  }, [dishes, searchQuery, isVip]);
 
   const fetchDishes = async () => {
     try {
@@ -75,7 +80,8 @@ export default function Menu() {
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchQuery.trim()) {
-      setFilteredDishes(dishes);
+      const filtered = dishes.filter(dish => !dish.is_vip_exclusive || isVip);
+      setFilteredDishes(filtered);
       return;
     }
 
@@ -86,7 +92,9 @@ export default function Menu() {
       });
       const data = await response.json();
       if (response.ok) {
-        setFilteredDishes(data.results || []);
+        // Filter VIP exclusive dishes for non-VIP users
+        const results = (data.results || []).filter(dish => !dish.is_vip_exclusive || isVip);
+        setFilteredDishes(results);
       }
     } catch (error) {
       console.error("Search error:", error);
@@ -97,7 +105,8 @@ export default function Menu() {
 
   const clearSearch = () => {
     setSearchQuery("");
-    setFilteredDishes(dishes);
+    const filtered = dishes.filter(dish => !dish.is_vip_exclusive || isVip);
+    setFilteredDishes(filtered);
   };
 
   const addToCart = (dish) => {
@@ -172,12 +181,14 @@ export default function Menu() {
                     <div className="card-body">
                       <h4 className="font-semibold text-sm">{dish.name}</h4>
                       <p className="text-primary font-bold">${parseFloat(dish.price).toFixed(2)}</p>
-                      <button
-                        className={`btn btn-xs ${addedToCart === dish.id ? "btn-success" : "btn-primary"} transition-all`}
-                        onClick={() => addToCart(dish)}
-                      >
-                        {addedToCart === dish.id ? "Added!" : "Add"}
-                      </button>
+                      {canOrder && (
+                        <button
+                          className={`btn btn-xs ${addedToCart === dish.id ? "btn-success" : "btn-primary"} transition-all`}
+                          onClick={() => addToCart(dish)}
+                        >
+                          {addedToCart === dish.id ? "Added!" : "Add"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -193,12 +204,14 @@ export default function Menu() {
                     <div className="card-body">
                       <h4 className="font-semibold text-sm">{dish.name}</h4>
                       <p className="text-primary font-bold">${parseFloat(dish.price).toFixed(2)}</p>
-                      <button
-                        className={`btn btn-xs ${addedToCart === dish.id ? "btn-success" : "btn-primary"} transition-all`}
-                        onClick={() => addToCart(dish)}
-                      >
-                        {addedToCart === dish.id ? "Added!" : "Add"}
-                      </button>
+                      {canOrder && (
+                        <button
+                          className={`btn btn-xs ${addedToCart === dish.id ? "btn-success" : "btn-primary"} transition-all`}
+                          onClick={() => addToCart(dish)}
+                        >
+                          {addedToCart === dish.id ? "Added!" : "Add"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -279,23 +292,25 @@ export default function Menu() {
                   <div className="badge badge-warning">VIP Only</div>
                 )}
 
-                <div className="card-actions justify-end mt-4">
-                  <button
-                    className={`btn btn-sm ${addedToCart === dish.id ? "btn-success" : "btn-primary"} transition-all duration-200`}
-                    onClick={() => addToCart(dish)}
-                  >
-                    {addedToCart === dish.id ? (
-                      <>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        Added!
-                      </>
-                    ) : (
-                      "Add to Cart"
-                    )}
-                  </button>
-                </div>
+                {canOrder && (
+                  <div className="card-actions justify-end mt-4">
+                    <button
+                      className={`btn btn-sm ${addedToCart === dish.id ? "btn-success" : "btn-primary"} transition-all duration-200`}
+                      onClick={() => addToCart(dish)}
+                    >
+                      {addedToCart === dish.id ? (
+                        <>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Added!
+                        </>
+                      ) : (
+                        "Add to Cart"
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
