@@ -1,70 +1,97 @@
-import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import './App.css';
 
-// Import pages
+// Context
+import { AuthProvider } from './context/AuthContext';
+
+// Components
+import Navbar from './components/Navbar';
+import Chatbox from './components/Chatbox';
+import ProtectedRoute from './components/ProtectedRoute';
+
+// Pages
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Menu from './pages/Menu';
 import Cart from './pages/Cart';
+import Profile from './pages/Profile';
+import Deposit from './pages/Deposit';
+import RateOrder from './pages/RateOrder';
+import Complaint from './pages/Complaint';
 import DiscussionBoard from './pages/DiscussionBoard';
 import DiscussionPost from './pages/DiscussionPost';
 import NewPost from './pages/NewPost';
 import ManagerDashboard from './pages/ManagerDashboard';
 
-import Chatbox from './components/Chatbox';
-
 function App() {
-  
-  useEffect(() => {
-    fetch("http://127.0.0.1:8000/api/index/")
-      .then((res) => res.text())
-      .then((data) => {
-        console.log("Backend says:", data);
-      })
-      .catch((err) => {
-        console.error("Error calling backend:", err);
-      });
-  }, []);
-
   return (
-    <Router>
-      <div className="min-h-screen bg-base-200">
-        
-        {/* Navigation Bar Skeleton */}
-        <nav className="navbar bg-base-100 shadow-xl mb-4">
-           <div className="flex-1">
-             <Link to="/" className="btn btn-ghost normal-case text-xl">Mashallah Eats</Link>
-           </div>
-           <div className="flex-none">
-             <ul className="menu menu-horizontal px-1 gap-2">
-               <li><Link to="/login">Login</Link></li>
-               <li><Link to="/menu">Menu</Link></li>
-               <li><Link to="/cart">Cart</Link></li>
-               <li><Link to="/discussion">Discussion Board</Link></li>
-             </ul>
-           </div>
-        </nav>
+    <AuthProvider>
+      <Router>
+        <div className="min-h-screen bg-base-200">
+          <Navbar />
 
-        {/* This determines which page to show based on the URL */}
-        <Routes>
-          {/* Default to Menu or a Home page */}
-          <Route path="/" element={<Menu />} /> 
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/menu" element={<Menu />} />
-          <Route path="/cart" element={<Cart />} />
-          <Route path="/discussion" element={<DiscussionBoard />} />
-          <Route path="/discussion/new" element={<NewPost />} />
-          <Route path="/discussion/:id" element={<DiscussionPost />} />
-          <Route path="/manager-dashboard" element={<ManagerDashboard />} />
-        </Routes>
+          <Routes>
+            {/* Public routes */}
+            <Route path="/" element={<Menu />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/menu" element={<Menu />} />
 
-        {/* Floating chatbox visible on all pages */}
-        <Chatbox />
+            {/* Protected routes - any logged in user */}
+            <Route path="/cart" element={
+              <ProtectedRoute>
+                <Cart />
+              </ProtectedRoute>
+            } />
+            <Route path="/profile" element={
+              <ProtectedRoute>
+                <Profile />
+              </ProtectedRoute>
+            } />
+            <Route path="/deposit" element={
+              <ProtectedRoute allowedRoles={['registered', 'vip']}>
+                <Deposit />
+              </ProtectedRoute>
+            } />
+            <Route path="/rate/:orderId" element={
+              <ProtectedRoute allowedRoles={['registered', 'vip']}>
+                <RateOrder />
+              </ProtectedRoute>
+            } />
+            <Route path="/complaint" element={
+              <ProtectedRoute>
+                <Complaint />
+              </ProtectedRoute>
+            } />
+            <Route path="/discussion" element={
+              <ProtectedRoute>
+                <DiscussionBoard />
+              </ProtectedRoute>
+            } />
+            <Route path="/discussion/new" element={
+              <ProtectedRoute>
+                <NewPost />
+              </ProtectedRoute>
+            } />
+            <Route path="/discussion/:id" element={
+              <ProtectedRoute>
+                <DiscussionPost />
+              </ProtectedRoute>
+            } />
 
-      </div>
-    </Router>
+            {/* Manager only */}
+            <Route path="/manager-dashboard" element={
+              <ProtectedRoute allowedRoles={['manager']}>
+                <ManagerDashboard />
+              </ProtectedRoute>
+            } />
+          </Routes>
+
+          <Chatbox />
+        </div>
+      </Router>
+    </AuthProvider>
   );
 }
 

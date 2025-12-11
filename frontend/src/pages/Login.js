@@ -1,9 +1,11 @@
-// frontend/src/pages/Login.js
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+import { API_BASE_URL } from "../config";
 
 export default function Login() {
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -13,13 +15,13 @@ export default function Login() {
     setErrorMsg("");
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/login/", {
+      const response = await fetch(`${API_BASE_URL}/login/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",   
+        credentials: "include",
         body: JSON.stringify({ username, password }),
       });
-                          
+
       const data = await response.json();
 
       if (!response.ok) {
@@ -27,12 +29,17 @@ export default function Login() {
         return;
       }
 
-      // Save user profile
-      localStorage.setItem("user", JSON.stringify(data));
+      // Use auth context to save user
+      login(data);
 
       // Redirect based on role
-      if (data.role === "manager") {
+      const userType = data.user?.user_type || data.user_type;
+      if (userType === "manager") {
         navigate("/manager-dashboard");
+      } else if (userType === "chef") {
+        navigate("/chef-dashboard");
+      } else if (userType === "delivery") {
+        navigate("/delivery-dashboard");
       } else {
         navigate("/menu");
       }

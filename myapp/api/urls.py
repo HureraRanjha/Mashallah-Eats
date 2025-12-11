@@ -8,7 +8,7 @@ from .views import (
     blacklist_user, get_profile, chat_with_ai, rate_kb_entry, manage_kb,
     AIDiscussionReview, dispute_complaint, get_my_complaints,
     hire_employee, fire_employee, update_salary, award_bonus,
-    list_employees, list_customers,
+    list_employees, list_customers, get_feedback_targets,
     submit_registration_request, get_registration_requests, process_registration_request,
     close_customer_account, customer_quit, add_kb_entry,
     search_menu, get_recommendations, get_top_chefs
@@ -61,4 +61,5 @@ urlpatterns = [
     path("search/", search_menu, name="search_menu"),
     path("recommendations/", get_recommendations, name="recommendations"),
     path("top-chefs/", get_top_chefs, name="top_chefs"),
+    path("feedback-targets/", get_feedback_targets, name="feedback_targets"),
 ]

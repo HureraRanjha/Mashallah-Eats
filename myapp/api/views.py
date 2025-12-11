@@ -94,38 +94,150 @@ def DishListView(request):
 
 @api_view(["GET"])
 def Discussions(request):
-    titles = DiscussionTopic.objects.all()
-    posts = DiscussionPost.objects.all()
+    topics = DiscussionTopic.objects.all().order_by('-created_at')
 
-    title_serializer = DiscussionTopicSerializer(titles, many=True)
-    post_serializer = DiscussionPostSerializer(posts, many=True)
+    # Build response with post counts and author names
+    titles_data = []
+    for topic in topics:
+        post_count = DiscussionPost.objects.filter(topic=topic).count()
+        titles_data.append({
+            "id": topic.id,
+            "title": topic.title,
+            "author_name": topic.author.username,
+            "topic_type": topic.topic_type,
+            "post_count": post_count,
+            "created_at": topic.created_at.strftime("%Y-%m-%d %H:%M"),
+        })
 
     return Response({
-        "titles": title_serializer.data,
-        "posts": post_serializer.data,
+        "titles": titles_data,
     })
 
 @api_view(["POST"])
 @csrf_exempt
 def create_reply(request):
-    serializer = DiscussionPostSerializer(data=request.data)
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "You must be logged in to post comments"}, status=401)
 
-    if serializer.is_valid():
-        serializer.save()
-        return Response(serializer.data, status=201)
+    topic_id = request.data.get("topic_id")
+    body = request.data.get("body")
 
-    return Response(serializer.errors, status=400)
+    if not topic_id:
+        return Response({"error": "topic_id is required"}, status=400)
+    if not body:
+        return Response({"error": "Comment body is required"}, status=400)
+
+    try:
+        topic = DiscussionTopic.objects.get(id=topic_id)
+    except DiscussionTopic.DoesNotExist:
+        return Response({"error": "Topic not found"}, status=404)
+
+    post = DiscussionPost.objects.create(
+        topic=topic,
+        author=user,
+        content=body
+    )
+
+    return Response({
+        "id": post.id,
+        "author": post.author.username,
+        "body": post.content,
+        "created_at": post.created_at.strftime("%Y-%m-%d %H:%M"),
+    }, status=201)
 
 
-@api_view(["POST"])   
+@api_view(["GET", "POST"])
 @csrf_exempt
 def create_topic(request):
-    serializer = DiscussionTopicSerializer(data=request.data)
-    if serializer.is_valid():
-        serializer.save()
-        return Response(serializer.data, status=201)
+    # GET: Fetch topic details with posts
+    if request.method == "GET":
+        post_id = request.GET.get("post_id")
+        if not post_id:
+            return Response({"error": "post_id is required"}, status=400)
 
-    return Response(serializer.errors, status=400)
+        try:
+            topic = DiscussionTopic.objects.get(id=post_id)
+        except DiscussionTopic.DoesNotExist:
+            return Response({"error": "Topic not found"}, status=404)
+
+        # Get all posts (comments) for this topic
+        posts = DiscussionPost.objects.filter(topic=topic).order_by('created_at')
+
+        return Response({
+            "post": {
+                "id": topic.id,
+                "title": topic.title,
+                "author": topic.author.username,
+                "topic_type": topic.topic_type,
+                "created_at": topic.created_at.strftime("%Y-%m-%d %H:%M"),
+                "body": "",  # Topics don't have body, posts do
+            },
+            "comments": [
+                {
+                    "id": post.id,
+                    "author": post.author.username,
+                    "body": post.content,
+                    "created_at": post.created_at.strftime("%Y-%m-%d %H:%M"),
+                }
+                for post in posts
+            ]
+        })
+
+    # POST: Create a new topic
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "You must be logged in to create topics"}, status=401)
+
+    title = request.data.get("title")
+    topic_type = request.data.get("topic_type", "general")
+
+    if not title:
+        return Response({"error": "Title is required"}, status=400)
+
+    # Optional related entities
+    related_chef = None
+    related_dish = None
+    related_delivery = None
+
+    if topic_type == "chef":
+        chef_id = request.data.get("related_chef")
+        if chef_id:
+            try:
+                related_chef = Chef.objects.get(id=chef_id)
+            except Chef.DoesNotExist:
+                pass
+    elif topic_type == "dish":
+        dish_id = request.data.get("related_dish")
+        if dish_id:
+            try:
+                related_dish = MenuItem.objects.get(id=dish_id)
+            except MenuItem.DoesNotExist:
+                pass
+    elif topic_type == "delivery":
+        delivery_id = request.data.get("related_delivery")
+        if delivery_id:
+            try:
+                related_delivery = DeliveryPerson.objects.get(id=delivery_id)
+            except DeliveryPerson.DoesNotExist:
+                pass
+
+    topic = DiscussionTopic.objects.create(
+        title=title,
+        author=user,
+        topic_type=topic_type,
+        related_chef=related_chef,
+        related_dish=related_dish,
+        related_delivery=related_delivery
+    )
+
+    return Response({
+        "id": topic.id,
+        "title": topic.title,
+        "author": topic.author.username,
+        "topic_type": topic.topic_type,
+        "created_at": topic.created_at.strftime("%Y-%m-%d %H:%M"),
+    }, status=201)
 
 @api_view(["POST"])
 @csrf_exempt
@@ -587,7 +699,7 @@ def confirm_deposit(request):
         return Response({"error": "Payment already processed"}, status=400)
 
     customer = user.userprofile.customerprofile
-    amount = intent.amount / 100  # Convert cents to dollars
+    amount = Decimal(intent.amount) / Decimal(100)  # Convert cents to dollars
 
     # Credit the balance
     customer.deposit_balance += amount
@@ -676,15 +788,75 @@ def file_complaint(request):
 
     weight = 2 if profile.user_type == "vip" else 1
 
-    serializer = ComplaintSerializer(data=request.data)
-    if serializer.is_valid():
-        serializer.save(complainant=user, weight=weight, status="pending")
-        return Response({
-            "message": "Complaint filed successfully",
-            "complaint": serializer.data
-        }, status=201)
+    # Look up the target user based on target_type
+    target_user = None
+    target_chef = None
+    target_delivery = None
 
-    return Response(serializer.errors, status=400)
+    if target_type == "chef":
+        chef_id = request.data.get("chef_id")
+        if not chef_id:
+            return Response({"error": "chef_id is required for chef complaints"}, status=400)
+        try:
+            target_chef = Chef.objects.get(id=chef_id)
+            target_user = target_chef.user_profile.user
+        except Chef.DoesNotExist:
+            return Response({"error": "Chef not found"}, status=404)
+
+    elif target_type == "delivery":
+        delivery_id = request.data.get("delivery_id")
+        if not delivery_id:
+            return Response({"error": "delivery_id is required for delivery complaints"}, status=400)
+        try:
+            target_delivery = DeliveryPerson.objects.get(id=delivery_id)
+            target_user = target_delivery.user_profile.user
+        except DeliveryPerson.DoesNotExist:
+            return Response({"error": "Delivery person not found"}, status=404)
+
+    elif target_type == "customer":
+        customer_username = request.data.get("customer_username")
+        if not customer_username:
+            return Response({"error": "customer_username is required for customer complaints"}, status=400)
+        try:
+            target_user = User.objects.get(username=customer_username)
+            # Verify they are actually a customer
+            if target_user.userprofile.user_type not in ["registered", "vip"]:
+                return Response({"error": "Target user is not a customer"}, status=400)
+        except User.DoesNotExist:
+            return Response({"error": "Customer not found"}, status=404)
+
+    # Get optional order_id
+    order_id = request.data.get("order_id")
+    order = None
+    if order_id:
+        try:
+            order = Order.objects.get(id=order_id)
+        except Order.DoesNotExist:
+            pass  # Order reference is optional
+
+    # Create the complaint
+    complaint = Complaint.objects.create(
+        complainant=user,
+        target_user=target_user,
+        target_type=target_type,
+        target_chef=target_chef,
+        target_delivery=target_delivery,
+        order=order,
+        description=description,
+        weight=weight,
+        status="pending"
+    )
+
+    return Response({
+        "message": "Complaint filed successfully",
+        "complaint": {
+            "id": complaint.id,
+            "target_type": complaint.target_type,
+            "target_user": complaint.target_user.username,
+            "description": complaint.description,
+            "status": complaint.status
+        }
+    }, status=201)
 
 @api_view(["GET"])
 def get_complaints(request):
@@ -734,15 +906,75 @@ def file_compliment(request):
     # VIP compliments count double
     weight = 2 if profile.user_type == "vip" else 1
 
-    serializer = ComplimentSerializer(data=request.data)
-    if serializer.is_valid():
-        serializer.save(author=user, weight=weight, status="pending")
-        return Response({
-            "message": "Compliment filed successfully",
-            "compliment": serializer.data
-        }, status=201)
+    # Look up the target user based on target_type
+    target_user = None
+    target_chef = None
+    target_delivery = None
 
-    return Response(serializer.errors, status=400)
+    if target_type == "chef":
+        chef_id = request.data.get("chef_id")
+        if not chef_id:
+            return Response({"error": "chef_id is required for chef compliments"}, status=400)
+        try:
+            target_chef = Chef.objects.get(id=chef_id)
+            target_user = target_chef.user_profile.user
+        except Chef.DoesNotExist:
+            return Response({"error": "Chef not found"}, status=404)
+
+    elif target_type == "delivery":
+        delivery_id = request.data.get("delivery_id")
+        if not delivery_id:
+            return Response({"error": "delivery_id is required for delivery compliments"}, status=400)
+        try:
+            target_delivery = DeliveryPerson.objects.get(id=delivery_id)
+            target_user = target_delivery.user_profile.user
+        except DeliveryPerson.DoesNotExist:
+            return Response({"error": "Delivery person not found"}, status=404)
+
+    elif target_type == "customer":
+        customer_username = request.data.get("customer_username")
+        if not customer_username:
+            return Response({"error": "customer_username is required for customer compliments"}, status=400)
+        try:
+            target_user = User.objects.get(username=customer_username)
+            # Verify they are actually a customer
+            if target_user.userprofile.user_type not in ["registered", "vip"]:
+                return Response({"error": "Target user is not a customer"}, status=400)
+        except User.DoesNotExist:
+            return Response({"error": "Customer not found"}, status=404)
+
+    # Get optional order_id
+    order_id = request.data.get("order_id")
+    order = None
+    if order_id:
+        try:
+            order = Order.objects.get(id=order_id)
+        except Order.DoesNotExist:
+            pass  # Order reference is optional
+
+    # Create the compliment
+    compliment = Compliment.objects.create(
+        author=user,
+        target_user=target_user,
+        target_type=target_type,
+        target_chef=target_chef,
+        target_delivery=target_delivery,
+        order=order,
+        description=description,
+        weight=weight,
+        status="pending"
+    )
+
+    return Response({
+        "message": "Compliment filed successfully",
+        "compliment": {
+            "id": compliment.id,
+            "target_type": compliment.target_type,
+            "target_user": compliment.target_user.username,
+            "description": compliment.description,
+            "status": compliment.status
+        }
+    }, status=201)
 
 @api_view(["GET"])
 def get_compliments(request):
@@ -1285,19 +1517,33 @@ def dispute_complaint(request):
 @api_view(["GET"])
 def get_my_complaints(request):
     """
-    Get complaints filed against the current user so they can view and dispute them.
+    Get complaints filed BY and AGAINST the current user.
     """
     user = request.user
 
     if not user.is_authenticated:
         return Response({"error": "Authentication required"}, status=401)
 
-    # Get complaints where user is the target
-    complaints = Complaint.objects.filter(target_user=user).order_by('-created_at')
+    # Get complaints filed BY the user
+    filed_complaints = Complaint.objects.filter(complainant=user).order_by('-created_at')
+    filed_data = []
+    for complaint in filed_complaints:
+        filed_data.append({
+            "id": complaint.id,
+            "target": complaint.target_user.username,
+            "target_type": complaint.target_type,
+            "description": complaint.description,
+            "status": complaint.status,
+            "manager_decision": complaint.manager_decision,
+            "created_at": complaint.created_at.strftime("%Y-%m-%d %H:%M"),
+            "processed_at": complaint.processed_at.strftime("%Y-%m-%d %H:%M") if complaint.processed_at else None,
+        })
 
-    data = []
-    for complaint in complaints:
-        data.append({
+    # Get complaints filed AGAINST the user
+    received_complaints = Complaint.objects.filter(target_user=user).order_by('-created_at')
+    received_data = []
+    for complaint in received_complaints:
+        received_data.append({
             "id": complaint.id,
             "complainant": complaint.complainant.username,
             "target_type": complaint.target_type,
@@ -1310,7 +1556,25 @@ def get_my_complaints(request):
             "can_dispute": complaint.status == "pending" and not complaint.dispute_text
         })
 
-    return Response({"complaints": data}, status=200)
+    # Get compliments filed BY the user
+    filed_compliments = Compliment.objects.filter(author=user).order_by('-created_at')
+    compliments_data = []
+    for compliment in filed_compliments:
+        compliments_data.append({
+            "id": compliment.id,
+            "target": compliment.target_user.username,
+            "target_type": compliment.target_type,
+            "description": compliment.description,
+            "status": compliment.status,
+            "created_at": compliment.created_at.strftime("%Y-%m-%d %H:%M"),
+            "processed_at": compliment.processed_at.strftime("%Y-%m-%d %H:%M") if compliment.processed_at else None,
+        })
+
+    return Response({
+        "filed": filed_data,
+        "received": received_data,
+        "compliments": compliments_data
+    }, status=200)
 
 @api_view(["POST"])
 @csrf_exempt
@@ -1431,6 +1695,41 @@ def list_employees(request):
     return Response({
         "chefs": ChefListSerializer(Chef.objects.all(), many=True).data,
         "delivery_persons": DeliveryPersonListSerializer(DeliveryPerson.objects.all(), many=True).data
+    })
+
+
+@api_view(["GET"])
+def get_feedback_targets(request):
+    """
+    Get list of chefs and delivery people that customers can file complaints/compliments about.
+    This is a public endpoint for any authenticated user.
+    """
+    if not request.user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    # Get all chefs with basic info
+    chefs = Chef.objects.select_related('user_profile__user').all()
+    chef_data = [
+        {
+            "id": chef.id,
+            "username": chef.user_profile.user.username,
+        }
+        for chef in chefs
+    ]
+
+    # Get all delivery people with basic info
+    delivery_people = DeliveryPerson.objects.select_related('user_profile__user').all()
+    delivery_data = [
+        {
+            "id": dp.id,
+            "username": dp.user_profile.user.username,
+        }
+        for dp in delivery_people
+    ]
+
+    return Response({
+        "chefs": chef_data,
+        "delivery_people": delivery_data
     })
 
 
