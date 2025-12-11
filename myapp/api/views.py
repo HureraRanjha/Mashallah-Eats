@@ -683,11 +683,11 @@ def get_available_orders(request):
 
     delivery_person = profile.deliveryperson
 
-    # Get pending orders without assignment
+    # Get orders without assignment (pending, preparing, or ready)
     available_orders = Order.objects.filter(
-        status="pending"
-    ).exclude(
-        assignment__isnull=False
+        status__in=["pending", "preparing", "ready"]
+    ).filter(
+        delivery_person__isnull=True
     ).order_by('-created_at')
 
     serializer = AvailableOrderSerializer(
@@ -742,10 +742,10 @@ def get_my_deliveries(request):
 
     delivery_person = profile.deliveryperson
 
-    # Get active deliveries (preparing or delivering)
+    # Get active deliveries (preparing, ready, or delivering)
     active = Order.objects.filter(
         delivery_person=delivery_person,
-        status__in=["preparing", "delivering"]
+        status__in=["preparing", "ready", "delivering"]
     ).order_by('-created_at')
 
     # Get completed deliveries
@@ -793,8 +793,8 @@ def update_delivery_status(request):
     new_status = data["new_status"]
 
     # Validate status transitions
-    if new_status == "delivering" and order.status != "preparing":
-        return Response({"error": "Can only start delivery for orders being prepared"}, status=400)
+    if new_status == "delivering" and order.status != "ready":
+        return Response({"error": "Can only start delivery for orders that are ready for pickup"}, status=400)
 
     if new_status == "delivered" and order.status != "delivering":
         return Response({"error": "Can only mark as delivered for orders being delivered"}, status=400)
@@ -1483,22 +1483,83 @@ def get_profile(request):
 @api_view(["POST"])
 def chat_with_ai(request):
     """
-    First searches local KB for similar questions.
+    First searches local KB for similar questions using keyword matching.
     If found, returns KB answer. If not, delegates to LLM.
+    Visitors (unauthenticated users) can also use this endpoint.
     """
-    user = request.user
-    if not user.is_authenticated:
-        return Response({"error": "Authentication required"}, status=401)
+    user = request.user if request.user.is_authenticated else None
 
     user_message = request.data.get("message")
     if not user_message:
         return Response({"error": "Message is required"}, status=400)
 
-    # Step 1: Search KB first (case-insensitive search in questions)
-    kb_match = KnowledgeBaseEntry.objects.filter(
-        question__icontains=user_message,
-        is_removed=False
-    ).order_by('-rating_count').first()
+    # Step 1: Search KB using keyword-based matching
+    # Common stop words to filter out
+    stop_words = {
+        'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your',
+        'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she',
+        'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their',
+        'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that',
+        'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+        'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an',
+        'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of',
+        'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through',
+        'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down',
+        'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then',
+        'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'each',
+        'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only',
+        'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just',
+        'don', 'should', 'now', 'd', 'll', 'm', 'o', 're', 've', 'y', 'ain', 'aren',
+        'couldn', 'didn', 'doesn', 'hadn', 'hasn', 'haven', 'isn', 'ma', 'mightn',
+        'mustn', 'needn', 'shan', 'shouldn', 'wasn', 'weren', 'won', 'wouldn',
+        'could', 'would', 'please', 'tell', 'know', 'want', 'like', 'get', 'make'
+    }
+
+    # Extract keywords from user message (remove punctuation, lowercase, filter stop words)
+    import re
+    words = re.findall(r'\b[a-zA-Z]+\b', user_message.lower())
+    keywords = [w for w in words if w not in stop_words and len(w) > 2]
+
+    kb_match = None
+    if keywords:
+        # Build query to find entries matching any keyword in question OR answer
+        from django.db.models import Q, Case, When, IntegerField, Value
+
+        # Create Q objects for each keyword
+        q_filter = Q()
+        for keyword in keywords:
+            q_filter |= Q(question__icontains=keyword) | Q(answer__icontains=keyword)
+
+        # Get all matching entries that aren't removed
+        matching_entries = KnowledgeBaseEntry.objects.filter(
+            q_filter,
+            is_removed=False
+        )
+
+        # Score each entry by how many keywords it matches
+        best_match = None
+        best_score = 0
+
+        for entry in matching_entries:
+            score = 0
+            entry_text = (entry.question + " " + entry.answer).lower()
+            for keyword in keywords:
+                if keyword in entry_text:
+                    score += 1
+
+            # Prefer entries with higher ratings
+            if entry.rating_count > 0:
+                avg_rating = entry.rating_sum / entry.rating_count
+                score += avg_rating * 0.5  # Boost by rating
+
+            if score > best_score:
+                best_score = score
+                best_match = entry
+
+        # Only use KB match if at least 2 keywords match (or 1 if only 1 keyword)
+        min_matches = 1 if len(keywords) == 1 else 2
+        if best_score >= min_matches:
+            kb_match = best_match
 
     if kb_match:
         return Response({
@@ -1525,8 +1586,8 @@ def chat_with_ai(request):
         bot_response = response['message']['content']
 
         kb_entry = KnowledgeBaseEntry.objects.create(
-            author=user,
-            author_type="customer",
+            author=user,  # None for visitors
+            author_type="customer" if user else "visitor",
             question=user_message,
             answer=bot_response,
             rating_sum=0,
@@ -1692,41 +1753,44 @@ def AIDiscussionReview(request):
     if not user.is_authenticated:
         return Response({"error": "Authentication required"}, status=401)
 
-
     profile = user.userprofile
     if profile.user_type != "manager":
         return Response({"error": "Only managers can see AI Summaries"}, status=403)
-    
-    menu_items = MenuItem.objects.all()
-    for menu_item in menu_items:
-        discussions = DiscussionTopic.objects.filter(related_dish=menu_item)
-        if not discussions:
+
+    # Get all discussion topics
+    discussions = DiscussionTopic.objects.all().order_by('-created_at')
+
+    for discussion in discussions:
+        posts = discussion.posts.all()
+        if not posts:
             continue
-        for discussion in discussions:
-            posts = discussion.posts.all()
-            post_contents = [post.content for post in posts]
-            dish_data = {
-            "dish_id": discussion.related_dish.id,
-            "dish_name": discussion.related_dish.name,
-            "dish_comment": post_contents
+
+        post_contents = [post.content for post in posts]
+
+        topic_data = {
+            "topic_id": discussion.id,
+            "topic_title": discussion.title,
+            "author": discussion.author.user.username if discussion.author else "Unknown",
+            "related_dish": discussion.related_dish.name if discussion.related_dish else None,
+            "comments": post_contents
         }
-            print(post_contents)
 
-        ai_response = call_ai_api(dish_data)
+        ai_response = call_ai_api_topics(topic_data)
 
-
-    # Save the AI summary to your response
         ai_summaries.append({
-                "dish_id": discussion.related_dish.id,  # Fixed reference to `discussion.related_dish`
-                "AI_summary": ai_response['message']['content']
-            })
-
+            "topic_id": discussion.id,
+            "topic_title": discussion.title,
+            "author": topic_data["author"],
+            "related_dish": topic_data["related_dish"],
+            "post_count": len(post_contents),
+            "AI_summary": ai_response['message']['content']
+        })
 
     return Response({
         "ai_summaries": ai_summaries
     })
 
-def call_ai_api(data):
+def call_ai_api_topics(data):
     ollama_host = os.getenv("OLLAMA_HOST")
     ollama_key = os.getenv("OLLAMA_API_KEY")
 
@@ -1735,13 +1799,14 @@ def call_ai_api(data):
         headers={'Authorization': f'Bearer {ollama_key}'}
     )
 
-    # Make review bullets
-    reviews_text = "\\n".join([f"- {c}" for c in data.get("dish_comment", [])])
+    # Make comment bullets
+    comments_text = "\n".join([f"- {c}" for c in data.get("comments", [])])
 
-    note = "Short summary of the reviews and provide a depiction of what customers think. Do NOT add any extra content of your own."
+    dish_info = f"Related Dish: {data['related_dish']}\n" if data.get('related_dish') else ""
 
-    # One-line content string
-    content = f"{note}\\n\\nDish ID: {data['dish_id']}, Dish Name: {data['dish_name']}\\n\\nCustomer Reviews:\\n{reviews_text}"
+    note = "Provide a brief summary of this discussion topic. What are the main points being discussed? What is the overall sentiment? Keep it concise (2-3 sentences max)."
+
+    content = f"{note}\n\nTopic: {data['topic_title']}\nStarted by: {data['author']}\n{dish_info}\nComments:\n{comments_text}"
 
     response = client.chat(
         model='gpt-oss:20b',
@@ -2304,3 +2369,303 @@ def get_top_chefs(request):
         result["same_chef"] = most_ordered.id == top_rated.id
 
     return Response(result)
+
+
+# ============================================
+# CHEF DASHBOARD ENDPOINTS
+# ============================================
+
+@api_view(["GET"])
+def get_chef_menu(request):
+    """Get chef's own menu items."""
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "chef":
+        return Response({"error": "Only chefs can access this"}, status=403)
+
+    chef = profile.chef
+    menu_items = MenuItem.objects.filter(chef=chef).order_by('-created_at')
+
+    data = []
+    for item in menu_items:
+        data.append({
+            "id": item.id,
+            "name": item.name,
+            "description": item.description,
+            "price": str(item.price),
+            "image_url": item.image_url,
+            "is_vip_exclusive": item.is_vip_exclusive,
+            "average_rating": item.average_rating,
+            "total_orders": item.total_orders,
+            "created_at": item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else None,
+        })
+
+    return Response({"menu_items": data})
+
+
+@api_view(["PUT"])
+@csrf_exempt
+def update_menu_item(request):
+    """Update a chef's menu item."""
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "chef":
+        return Response({"error": "Only chefs can update menu items"}, status=403)
+
+    chef = profile.chef
+    item_id = request.data.get("item_id")
+
+    try:
+        menu_item = MenuItem.objects.get(id=item_id, chef=chef)
+    except MenuItem.DoesNotExist:
+        return Response({"error": "Menu item not found or not owned by you"}, status=404)
+
+    # Update fields if provided
+    if "name" in request.data:
+        menu_item.name = request.data["name"]
+    if "description" in request.data:
+        menu_item.description = request.data["description"]
+    if "price" in request.data:
+        menu_item.price = Decimal(str(request.data["price"]))
+    if "image_url" in request.data:
+        menu_item.image_url = request.data["image_url"]
+    if "is_vip_exclusive" in request.data:
+        menu_item.is_vip_exclusive = request.data["is_vip_exclusive"]
+
+    menu_item.save()
+
+    return Response({
+        "message": "Menu item updated successfully",
+        "item": {
+            "id": menu_item.id,
+            "name": menu_item.name,
+            "description": menu_item.description,
+            "price": str(menu_item.price),
+            "image_url": menu_item.image_url,
+            "is_vip_exclusive": menu_item.is_vip_exclusive,
+        }
+    })
+
+
+@api_view(["DELETE"])
+@csrf_exempt
+def delete_menu_item(request):
+    """Delete a chef's menu item."""
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "chef":
+        return Response({"error": "Only chefs can delete menu items"}, status=403)
+
+    chef = profile.chef
+    item_id = request.data.get("item_id")
+
+    try:
+        menu_item = MenuItem.objects.get(id=item_id, chef=chef)
+    except MenuItem.DoesNotExist:
+        return Response({"error": "Menu item not found or not owned by you"}, status=404)
+
+    item_name = menu_item.name
+    menu_item.delete()
+
+    return Response({"message": f"Menu item '{item_name}' deleted successfully"})
+
+
+@api_view(["GET"])
+def get_chef_orders(request):
+    """Get all orders for chefs to see."""
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "chef":
+        return Response({"error": "Only chefs can access this"}, status=403)
+
+    chef = profile.chef
+
+    # Get all orders with their items
+    orders = Order.objects.all().select_related(
+        'customer__user_profile__user'
+    ).prefetch_related('items__menu_item__chef').order_by('-created_at')
+
+    # Build order data
+    active = []
+    completed = []
+    for order in orders:
+        order_data = {
+            "id": order.id,
+            "customer_name": order.customer.user_profile.user.username,
+            "status": order.status,
+            "total_price": str(order.total_price),
+            "delivery_address": order.delivery_address,
+            "created_at": order.created_at.strftime("%Y-%m-%d %H:%M") if order.created_at else None,
+            "items": [],
+            "has_my_items": False,
+        }
+
+        for oi in order.items.all():
+            is_mine = oi.menu_item.chef_id == chef.id
+            if is_mine:
+                order_data["has_my_items"] = True
+            order_data["items"].append({
+                "name": oi.menu_item.name,
+                "quantity": oi.quantity,
+                "price": str(oi.price_at_time),
+                "is_mine": is_mine,
+                "chef_name": oi.menu_item.chef.user_profile.user.username,
+            })
+
+        if order.status in ["pending", "preparing", "ready", "delivering"]:
+            active.append(order_data)
+        else:
+            completed.append(order_data)
+
+    return Response({
+        "active": active,
+        "completed": completed
+    })
+
+
+@api_view(["POST"])
+def update_order_status(request):
+    """Allow chef to mark order as preparing/ready."""
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "chef":
+        return Response({"error": "Only chefs can access this"}, status=403)
+
+    order_id = request.data.get("order_id")
+    new_status = request.data.get("status")
+
+    if not order_id or not new_status:
+        return Response({"error": "order_id and status are required"}, status=400)
+
+    if new_status not in ["preparing", "ready"]:
+        return Response({"error": "Chefs can only mark orders as 'preparing' or 'ready'"}, status=400)
+
+    try:
+        order = Order.objects.get(id=order_id)
+    except Order.DoesNotExist:
+        return Response({"error": "Order not found"}, status=404)
+
+    # Validate status transitions
+    if new_status == "preparing" and order.status != "pending":
+        return Response({"error": f"Cannot mark order as preparing. Current status: {order.status}"}, status=400)
+
+    if new_status == "ready" and order.status != "preparing":
+        return Response({"error": f"Cannot mark order as ready. Current status: {order.status}"}, status=400)
+
+    order.status = new_status
+    order.save()
+
+    return Response({
+        "message": f"Order #{order_id} marked as {new_status}",
+        "order_id": order_id,
+        "status": new_status
+    })
+
+
+@api_view(["GET"])
+def get_chef_ratings(request):
+    """Get ratings for chef's menu items."""
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "chef":
+        return Response({"error": "Only chefs can access this"}, status=403)
+
+    chef = profile.chef
+
+    # Get all ratings for this chef's items
+    ratings = FoodRating.objects.filter(
+        order_item__menu_item__chef=chef
+    ).select_related(
+        'order_item__menu_item', 'customer__user_profile__user'
+    ).order_by('-created_at')
+
+    data = []
+    for rating in ratings:
+        data.append({
+            "id": rating.id,
+            "menu_item": rating.order_item.menu_item.name,
+            "customer": rating.customer.user_profile.user.username,
+            "rating": rating.rating,
+            "created_at": rating.created_at.strftime("%Y-%m-%d %H:%M") if rating.created_at else None,
+        })
+
+    # Calculate stats
+    total_ratings = len(data)
+    avg_rating = sum(r["rating"] for r in data) / total_ratings if total_ratings > 0 else 0
+
+    # Get per-item breakdown
+    item_ratings = {}
+    for rating in ratings:
+        item_name = rating.order_item.menu_item.name
+        if item_name not in item_ratings:
+            item_ratings[item_name] = {"total": 0, "count": 0}
+        item_ratings[item_name]["total"] += rating.rating
+        item_ratings[item_name]["count"] += 1
+
+    item_breakdown = [
+        {
+            "name": name,
+            "average_rating": round(data["total"] / data["count"], 1),
+            "total_ratings": data["count"]
+        }
+        for name, data in item_ratings.items()
+    ]
+
+    return Response({
+        "ratings": data,
+        "stats": {
+            "total_ratings": total_ratings,
+            "average_rating": round(avg_rating, 1),
+        },
+        "item_breakdown": item_breakdown
+    })
+
+
+@api_view(["GET"])
+def get_chef_stats(request):
+    """Get chef's profile stats."""
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "chef":
+        return Response({"error": "Only chefs can access this"}, status=403)
+
+    chef = profile.chef
+
+    # Calculate total orders for chef's items
+    total_orders = sum(item.total_orders for item in chef.menu_items.all())
+
+    return Response({
+        "id": chef.id,
+        "username": user.username,
+        "email": user.email,
+        "salary": str(chef.salary),
+        "average_rating": chef.average_rating,
+        "complaint_count": chef.complaint_count,
+        "compliment_count": chef.compliment_count,
+        "demotion_count": chef.demotion_count,
+        "hired_at": chef.hired_at.strftime("%Y-%m-%d") if chef.hired_at else None,
+        "total_menu_items": chef.menu_items.count(),
+        "total_orders": total_orders,
+        "profile_picture": chef.profile_picture,
+    })

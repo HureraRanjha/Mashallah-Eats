@@ -297,7 +297,7 @@ class AvailableOrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = ["id", "customer_name", "items_summary", "delivery_address",
-                  "total_price", "created_at", "my_bid"]
+                  "total_price", "created_at", "my_bid", "status"]
 
     def get_items_summary(self, obj):
         return ", ".join([f"{item.quantity}x {item.menu_item.name}" for item in obj.items.all()])

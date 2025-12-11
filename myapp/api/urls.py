@@ -14,7 +14,10 @@ from .views import (
     search_menu, get_recommendations, get_top_chefs, get_delivery_persons,
     # Delivery dashboard endpoints
     get_available_orders, get_my_bids, get_my_deliveries,
-    update_delivery_status, get_delivery_stats
+    update_delivery_status, get_delivery_stats,
+    # Chef dashboard endpoints
+    get_chef_menu, update_menu_item, delete_menu_item,
+    get_chef_orders, update_order_status, get_chef_ratings, get_chef_stats
 )
 
 urlpatterns = [
@@ -72,4 +75,12 @@ urlpatterns = [
     path("delivery/my-deliveries/", get_my_deliveries, name="my_deliveries"),
     path("delivery/update-status/", update_delivery_status, name="update_delivery_status"),
     path("delivery/stats/", get_delivery_stats, name="delivery_stats"),
+    # Chef dashboard routes
+    path("chef/menu/", get_chef_menu, name="chef_menu"),
+    path("chef/menu/update/", update_menu_item, name="update_menu_item"),
+    path("chef/menu/delete/", delete_menu_item, name="delete_menu_item"),
+    path("chef/orders/", get_chef_orders, name="chef_orders"),
+    path("chef/orders/update-status/", update_order_status, name="update_order_status"),
+    path("chef/ratings/", get_chef_ratings, name="chef_ratings"),
+    path("chef/stats/", get_chef_stats, name="chef_stats"),
 ]

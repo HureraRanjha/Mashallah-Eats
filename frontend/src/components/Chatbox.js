@@ -22,15 +22,6 @@ export default function Chatbox() {
     // Add user message to chat
     setMessages(prev => [...prev, { id: Date.now(), role: "user", text: userMessage }]);
 
-    // Check if logged in
-    if (!user) {
-      setMessages(prev => [...prev, {
-        id: Date.now() + 1,
-        role: "assistant",
-        text: "Please log in to use the chat feature."
-      }]);
-      return;
-    }
 
     setLoading(true);
     setShowRating(false);
@@ -63,8 +54,8 @@ export default function Chatbox() {
         entryId: data.entry_id
       }]);
 
-      // Show rating option if response came from knowledge base
-      if (data.source === "knowledge_base" && data.entry_id) {
+      // Show rating option if response came from knowledge base (only for logged-in users)
+      if (data.source === "knowledge_base" && data.entry_id && user) {
         setLastEntryId(data.entry_id);
         setShowRating(true);
       }
@@ -106,9 +97,9 @@ export default function Chatbox() {
   };
 
   return (
-    <div className={`fixed bottom-4 right-4 z-50 ${open ? "w-80" : "w-auto"}`}>
+    <div className={`fixed bottom-4 right-4 z-50 ${open ? "w-96" : "w-auto"}`}>
       {open ? (
-        <div className="card bg-base-100 shadow-2xl rounded-lg flex flex-col h-96">
+        <div className="card bg-base-100 shadow-2xl rounded-lg flex flex-col h-[28rem]">
           {/* Header */}
           <div
             className="flex justify-between items-center p-3 bg-primary text-primary-content rounded-t-lg cursor-pointer"

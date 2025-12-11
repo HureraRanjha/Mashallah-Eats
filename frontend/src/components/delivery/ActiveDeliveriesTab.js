@@ -37,7 +37,9 @@ export default function ActiveDeliveriesTab({ deliveries, onRefresh, onMessage }
   const getStatusBadge = (status) => {
     switch (status) {
       case "preparing":
-        return <span className="badge badge-warning">Preparing</span>;
+        return <span className="badge badge-warning">Chef Preparing</span>;
+      case "ready":
+        return <span className="badge badge-success">Ready for Pickup</span>;
       case "delivering":
         return <span className="badge badge-info">In Transit</span>;
       default:
@@ -101,14 +103,17 @@ export default function ActiveDeliveriesTab({ deliveries, onRefresh, onMessage }
 
                 <div className="divider my-2"></div>
 
-                <div className="flex gap-2 justify-end">
+                <div className="flex gap-2 justify-end items-center">
                   {order.status === "preparing" && (
+                    <span className="text-warning text-sm">Waiting for chef to finish...</span>
+                  )}
+                  {order.status === "ready" && (
                     <button
                       className={`btn btn-info ${actionLoading ? "loading" : ""}`}
                       onClick={() => handleUpdateStatus(order.id, "delivering")}
                       disabled={actionLoading}
                     >
-                      Start Delivery
+                      Pick Up & Start Delivery
                     </button>
                   )}
                   {order.status === "delivering" && (

@@ -101,8 +101,17 @@ export default function AvailableOrdersTab({ availableOrders, myBids, onRefresh,
                 <div className="card-body p-4">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <span className="font-bold text-lg">Order #{order.id}</span>
+                        <span className={`badge badge-sm ${
+                          order.status === "ready" ? "badge-success" :
+                          order.status === "preparing" ? "badge-warning" :
+                          "badge-ghost"
+                        }`}>
+                          {order.status === "ready" ? "Ready for Pickup" :
+                           order.status === "preparing" ? "Chef Preparing" :
+                           "Pending"}
+                        </span>
                         {order.my_bid && (
                           <span className="badge badge-info">
                             Your Bid: ${parseFloat(order.my_bid.amount).toFixed(2)}

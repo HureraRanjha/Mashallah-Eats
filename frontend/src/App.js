@@ -24,6 +24,7 @@ import DiscussionPost from './pages/DiscussionPost';
 import NewPost from './pages/NewPost';
 import ManagerDashboard from './pages/ManagerDashboard';
 import DeliveryDashboard from './pages/DeliveryDashboard';
+import ChefDashboard from './pages/ChefDashboard';
 
 function App() {
   return (
@@ -93,10 +94,15 @@ function App() {
               </ProtectedRoute>
             } />
 
-            {/* Chef routes (placeholder for future) */}
+            {/* Chef routes */}
+            <Route path="/chef" element={
+              <ProtectedRoute allowedRoles={['chef']}>
+                <ChefDashboard />
+              </ProtectedRoute>
+            } />
             <Route path="/chef/:section" element={
               <ProtectedRoute allowedRoles={['chef']}>
-                <div className="text-center py-8">Chef Dashboard - Coming Soon</div>
+                <ChefDashboard />
               </ProtectedRoute>
             } />
 

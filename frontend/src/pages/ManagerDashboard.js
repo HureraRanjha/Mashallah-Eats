@@ -9,6 +9,7 @@ import {
   DeliveriesTab,
   KBModerationTab,
   CustomersTab,
+  DiscussionSummaryTab,
 } from "../components/manager";
 
 export default function ManagerDashboard() {
@@ -33,6 +34,7 @@ export default function ManagerDashboard() {
   const [pendingDeliveries, setPendingDeliveries] = useState([]);
   const [flaggedKB, setFlaggedKB] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [discussionSummaries, setDiscussionSummaries] = useState([]);
 
   // Loading & messages
   const [loading, setLoading] = useState(true);
@@ -78,6 +80,9 @@ export default function ManagerDashboard() {
           break;
         case "customers":
           await fetchCustomers();
+          break;
+        case "discussions":
+          await fetchDiscussionSummaries();
           break;
         default:
           break;
@@ -152,6 +157,14 @@ export default function ManagerDashboard() {
     if (res.ok) setCustomers(data.customers || []);
   };
 
+  const fetchDiscussionSummaries = async () => {
+    const res = await fetch(`${API_BASE_URL}/discussion_summary/`, {
+      credentials: "include",
+    });
+    const data = await res.json();
+    if (res.ok) setDiscussionSummaries(data.ai_summaries || []);
+  };
+
   // Message handler for child components
   const handleMessage = (type, message) => {
     if (type === "error") {
@@ -173,6 +186,7 @@ export default function ManagerDashboard() {
       case "deliveries": return fetchDeliveries;
       case "kb": return fetchFlaggedKB;
       case "customers": return fetchCustomers;
+      case "discussions": return fetchDiscussionSummaries;
       default: return () => {};
     }
   };
@@ -187,6 +201,7 @@ export default function ManagerDashboard() {
       deliveries: "Delivery Assignments",
       kb: "Knowledge Base Moderation",
       customers: "Customer Management",
+      discussions: "AI Discussion Summaries",
     };
     return titles[activeTab] || "Manager Dashboard";
   };
@@ -266,6 +281,13 @@ export default function ManagerDashboard() {
               {activeTab === "customers" && (
                 <CustomersTab
                   customers={customers}
+                  onRefresh={getRefreshHandler()}
+                  onMessage={handleMessage}
+                />
+              )}
+              {activeTab === "discussions" && (
+                <DiscussionSummaryTab
+                  summaries={discussionSummaries}
                   onRefresh={getRefreshHandler()}
                   onMessage={handleMessage}
                 />
