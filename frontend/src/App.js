@@ -2,19 +2,20 @@ import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import './App.css';
 
-// Import your pages (Make sure these files exist!)
+// Import pages
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Menu from './pages/Menu';
 import Cart from './pages/Cart';
 import DiscussionBoard from './pages/DiscussionBoard';
+import DiscussionPost from './pages/DiscussionPost';
+import NewPost from './pages/NewPost';
 import ManagerDashboard from './pages/ManagerDashboard';
 
 import Chatbox from './components/Chatbox';
 
 function App() {
   
-  // I kept your backend test here so you can still see it in the console
   useEffect(() => {
     fetch("http://127.0.0.1:8000/api/index/")
       .then((res) => res.text())
@@ -54,6 +55,8 @@ function App() {
           <Route path="/menu" element={<Menu />} />
           <Route path="/cart" element={<Cart />} />
           <Route path="/discussion" element={<DiscussionBoard />} />
+          <Route path="/discussion/new" element={<NewPost />} />
+          <Route path="/discussion/:id" element={<DiscussionPost />} />
           <Route path="/manager-dashboard" element={<ManagerDashboard />} />
         </Routes>
 
