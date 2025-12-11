@@ -12,4 +12,4 @@ package-lock.json
 build/
 dist/
 docs/REQUIREMENTS.md
-./Frontend/.claude/
+.claude/
