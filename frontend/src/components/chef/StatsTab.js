@@ -1,6 +1,11 @@
-import React from "react";
+import React, { useState } from "react";
+import { API_BASE_URL } from "../../config";
 
-export default function StatsTab({ stats }) {
+export default function StatsTab({ stats, onRefresh }) {
+  const [editingPicture, setEditingPicture] = useState(false);
+  const [pictureUrl, setPictureUrl] = useState(stats?.profile_picture || "");
+  const [saving, setSaving] = useState(false);
+
   if (!stats) {
     return (
       <div className="text-center py-8 opacity-70">
@@ -8,6 +13,26 @@ export default function StatsTab({ stats }) {
       </div>
     );
   }
+
+  const handleSavePicture = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/chef/stats/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ profile_picture: pictureUrl }),
+      });
+      if (res.ok) {
+        setEditingPicture(false);
+        if (onRefresh) onRefresh();
+      }
+    } catch (error) {
+      console.error("Failed to update picture:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const renderStars = (rating) => {
     const numRating = parseFloat(rating) || 0;
@@ -36,26 +61,77 @@ export default function StatsTab({ stats }) {
       <div className="card bg-base-200 shadow">
         <div className="card-body">
           <h4 className="card-title">Profile Information</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <p className="text-sm opacity-70">Username</p>
-              <p className="font-semibold text-lg">{stats.username}</p>
+          <div className="flex flex-col md:flex-row gap-6">
+            {/* Profile Picture */}
+            <div className="flex flex-col items-center">
+              <div className="avatar">
+                <div className="w-24 h-24 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2">
+                  <img
+                    src={stats.profile_picture || "https://via.placeholder.com/96?text=Chef"}
+                    alt="Profile"
+                  />
+                </div>
+              </div>
+              {editingPicture ? (
+                <div className="mt-3 space-y-2">
+                  <input
+                    type="url"
+                    className="input input-bordered input-sm w-48"
+                    placeholder="Enter image URL"
+                    value={pictureUrl}
+                    onChange={(e) => setPictureUrl(e.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      className={`btn btn-primary btn-xs ${saving ? "loading" : ""}`}
+                      onClick={handleSavePicture}
+                      disabled={saving}
+                    >
+                      Save
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-xs"
+                      onClick={() => {
+                        setEditingPicture(false);
+                        setPictureUrl(stats.profile_picture || "");
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="btn btn-ghost btn-xs mt-2"
+                  onClick={() => setEditingPicture(true)}
+                >
+                  Edit Picture
+                </button>
+              )}
             </div>
-            <div>
-              <p className="text-sm opacity-70">Email</p>
-              <p className="font-semibold">{stats.email}</p>
-            </div>
-            <div>
-              <p className="text-sm opacity-70">Salary</p>
-              <p className="font-semibold text-lg text-success">
-                ${parseFloat(stats.salary || 0).toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <p className="text-sm opacity-70">Hired Date</p>
-              <p className="font-semibold">
-                {stats.hired_at ? new Date(stats.hired_at).toLocaleDateString() : "N/A"}
-              </p>
+
+            {/* Info Grid */}
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm opacity-70">Username</p>
+                <p className="font-semibold text-lg">{stats.username}</p>
+              </div>
+              <div>
+                <p className="text-sm opacity-70">Email</p>
+                <p className="font-semibold">{stats.email}</p>
+              </div>
+              <div>
+                <p className="text-sm opacity-70">Salary</p>
+                <p className="font-semibold text-lg text-success">
+                  ${parseFloat(stats.salary || 0).toFixed(2)}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm opacity-70">Hired Date</p>
+                <p className="font-semibold">
+                  {stats.hired_at ? new Date(stats.hired_at).toLocaleDateString() : "N/A"}
+                </p>
+              </div>
             </div>
           </div>
         </div>

@@ -95,6 +95,11 @@ function App() {
             } />
 
             {/* Chef routes */}
+            <Route path="/chef-dashboard" element={
+              <ProtectedRoute allowedRoles={['chef']}>
+                <ChefDashboard />
+              </ProtectedRoute>
+            } />
             <Route path="/chef" element={
               <ProtectedRoute allowedRoles={['chef']}>
                 <ChefDashboard />
@@ -107,6 +112,11 @@ function App() {
             } />
 
             {/* Delivery routes */}
+            <Route path="/delivery-dashboard" element={
+              <ProtectedRoute allowedRoles={['delivery']}>
+                <DeliveryDashboard />
+              </ProtectedRoute>
+            } />
             <Route path="/delivery" element={
               <ProtectedRoute allowedRoles={['delivery']}>
                 <DeliveryDashboard />

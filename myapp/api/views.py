@@ -2639,9 +2639,9 @@ def get_chef_ratings(request):
     })
 
 
-@api_view(["GET"])
+@api_view(["GET", "POST"])
 def get_chef_stats(request):
-    """Get chef's profile stats."""
+    """Get chef's profile stats or update profile picture."""
     user = request.user
     if not user.is_authenticated:
         return Response({"error": "Authentication required"}, status=401)
@@ -2652,6 +2652,16 @@ def get_chef_stats(request):
 
     chef = profile.chef
 
+    # POST: Update profile picture
+    if request.method == "POST":
+        profile_picture_url = request.data.get("profile_picture")
+        if profile_picture_url is not None:
+            chef.profile_picture = profile_picture_url if profile_picture_url else None
+            chef.save()
+            return Response({"message": "Profile picture updated", "profile_picture": chef.profile_picture})
+        return Response({"error": "profile_picture field required"}, status=400)
+
+    # GET: Return stats
     # Calculate total orders for chef's items
     total_orders = sum(item.total_orders for item in chef.menu_items.all())
 

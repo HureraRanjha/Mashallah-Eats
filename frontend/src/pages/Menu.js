@@ -159,7 +159,7 @@ export default function Menu() {
                 <p className="font-semibold mt-2">{chef.name}</p>
                 <div className="flex items-center justify-center gap-1 text-sm">
                   <span className="text-warning">★</span>
-                  <span>{chef.average_rating?.toFixed(1) || "N/A"}</span>
+                  <span>{chef.average_rating > 0 ? chef.average_rating.toFixed(1) : "N/A"}</span>
                 </div>
                 <p className="text-xs opacity-70">{chef.total_orders} orders</p>
               </div>
@@ -280,10 +280,10 @@ export default function Menu() {
                 <p>{dish.description}</p>
 
                 {/* Rating */}
-                {dish.average_rating && (
+                {dish.average_rating > 0 && (
                   <div className="flex items-center gap-1">
                     <span className="text-warning">★</span>
-                    <span>{dish.average_rating.toFixed(1)}</span>
+                    <span>{parseFloat(dish.average_rating).toFixed(1)}</span>
                   </div>
                 )}
 

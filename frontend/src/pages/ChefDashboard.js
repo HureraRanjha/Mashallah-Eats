@@ -165,7 +165,7 @@ export default function ChefDashboard() {
             <RatingsTab ratings={ratings} />
           )}
           {activeTab === "stats" && (
-            <StatsTab stats={stats} />
+            <StatsTab stats={stats} onRefresh={fetchStats} />
           )}
         </div>
       )}

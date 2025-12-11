@@ -152,7 +152,7 @@ export default function MenuTab({ menuItems, onRefresh, onMessage }) {
                   </span>
                   <div className="flex items-center gap-1">
                     <span className="text-warning">★</span>
-                    <span>{item.average_rating?.toFixed(1) || "N/A"}</span>
+                    <span>{item.average_rating > 0 ? item.average_rating.toFixed(1) : "N/A"}</span>
                   </div>
                 </div>
                 <div className="text-sm opacity-60">

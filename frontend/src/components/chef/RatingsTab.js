@@ -18,7 +18,7 @@ export default function RatingsTab({ ratings }) {
         <div className="stat bg-base-100 shadow rounded-lg">
           <div className="stat-title">Average Rating</div>
           <div className="stat-value text-warning">
-            {ratings.stats?.average_rating || 0}
+            {ratings.stats?.average_rating > 0 ? ratings.stats.average_rating.toFixed(1) : "N/A"}
             <span className="text-2xl ml-1">★</span>
           </div>
           <div className="stat-desc">{ratings.stats?.total_ratings || 0} total ratings</div>
@@ -53,8 +53,8 @@ export default function RatingsTab({ ratings }) {
                       <td className="font-semibold">{item.name}</td>
                       <td>
                         <div className="flex items-center gap-1">
-                          {renderStars(Math.round(item.average_rating))}
-                          <span className="ml-2">{item.average_rating}</span>
+                          {renderStars(Math.round(item.average_rating || 0))}
+                          <span className="ml-2">{item.average_rating > 0 ? item.average_rating.toFixed(1) : "N/A"}</span>
                         </div>
                       </td>
                       <td>{item.total_ratings}</td>
