@@ -255,6 +255,7 @@ def order_food(request):
         customer_id = data.get("customer_id")
 
     items_data = data.get("items", [])
+    delivery_address = data.get("delivery_address", "")
     if not items_data:
         return Response({"error": "No items provided"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -334,6 +335,7 @@ def order_food(request):
                 "customer": customer_id,
                 "total_price": grand_total,
                 "status": "pending",
+                "delivery_address": delivery_address,
                 # Save fee info if your model supports it, otherwise ignore
             })
             if not order_serializer.is_valid():
@@ -367,7 +369,8 @@ def order_food(request):
             }
 
             if upgraded:
-                response_data["message"] = "Congratulations! You have been upgraded to VIP status!"
+                response_data["upgraded_to_vip"] = True
+                response_data["message"] = "Order placed successfully! Congratulations! You have been upgraded to VIP status!"
 
             return Response(response_data, status=status.HTTP_201_CREATED)
 
@@ -486,6 +489,15 @@ def LoginUser(request):
     except UserProfile.DoesNotExist:
         return Response({"error": "Account setup incomplete. Please register."}, status=400)
 
+    # Check if customer is blacklisted
+    if profile.user_type in ['registered', 'vip']:
+        customer_profile = getattr(profile, 'customerprofile', None)
+        if customer_profile and customer_profile.is_blacklisted:
+            return Response({
+                "error": "Your account has been suspended due to policy violations. Please contact support.",
+                "blacklisted": True
+            }, status=403)
+
     login(request, user)
 
     # Get customer_profile_id if user is a customer
@@ -545,6 +557,33 @@ def get_delivery_bids(request):
     return Response({"orders": serializer.data})
 
 
+@api_view(["GET"])
+def get_delivery_persons(request):
+    """Get all delivery persons for manager to manually assign."""
+    user = request.user
+
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "manager":
+        return Response({"error": "Only managers can access this"}, status=403)
+
+    delivery_persons = DeliveryPerson.objects.select_related('user_profile__user').all()
+    data = [
+        {
+            "id": dp.id,
+            "username": dp.user_profile.user.username,
+            "email": dp.user_profile.user.email,
+            "average_rating": dp.average_rating,
+            "total_deliveries": Order.objects.filter(delivery_person=dp, status="delivered").count(),
+        }
+        for dp in delivery_persons
+    ]
+
+    return Response({"delivery_persons": data})
+
+
 @api_view(["POST"])
 @csrf_exempt
 def assign_delivery(request):
@@ -559,13 +598,52 @@ def assign_delivery(request):
 
     order_id = request.data.get("order_id")
     bid_id = request.data.get("bid_id")
+    delivery_person_id = request.data.get("delivery_person_id")  # For manual assignment
+    delivery_fee = request.data.get("delivery_fee")  # For manual assignment
     justification = request.data.get("justification_memo", "")
 
-    selected_bid = DeliveryBid.objects.get(id=bid_id)
+    try:
+        order = Order.objects.get(id=order_id)
+    except Order.DoesNotExist:
+        return Response({"error": "Order not found"}, status=404)
+
+    # Manual assignment (no bid)
+    if delivery_person_id and delivery_fee:
+        try:
+            delivery_person = DeliveryPerson.objects.get(id=delivery_person_id)
+        except DeliveryPerson.DoesNotExist:
+            return Response({"error": "Delivery person not found"}, status=404)
+
+        # Create assignment record
+        DeliveryAssignment.objects.create(
+            order_id=order_id,
+            delivery_person=delivery_person,
+            assigned_by=user,
+            winning_bid=None,
+            justification_memo=justification or "Manual assignment by manager"
+        )
+
+        # Update order
+        order.delivery_person = delivery_person
+        order.delivery_bid_price = Decimal(str(delivery_fee))
+        order.status = "preparing"
+        order.save()
+
+        return Response({"message": "Delivery manually assigned", "order_id": order_id}, status=201)
+
+    # Bid-based assignment
+    if not bid_id:
+        return Response({"error": "Either bid_id or delivery_person_id with delivery_fee required"}, status=400)
+
+    try:
+        selected_bid = DeliveryBid.objects.get(id=bid_id)
+    except DeliveryBid.DoesNotExist:
+        return Response({"error": "Bid not found"}, status=404)
+
     lowest_bid = DeliveryBid.objects.filter(order_id=order_id).first()
 
     # Require justification if not choosing lowest bidder
-    if selected_bid.id != lowest_bid.id and not justification:
+    if lowest_bid and selected_bid.id != lowest_bid.id and not justification:
         return Response({"error": "Justification memo required when not selecting lowest bidder"}, status=400)
 
     # Create assignment record
@@ -574,17 +652,181 @@ def assign_delivery(request):
         delivery_person=selected_bid.delivery_person,
         assigned_by=user,
         winning_bid=selected_bid,
-        justification_memo=justification if selected_bid.id != lowest_bid.id else None
+        justification_memo=justification if (lowest_bid and selected_bid.id != lowest_bid.id) else None
     )
 
     # Update order
-    order = Order.objects.get(id=order_id)
     order.delivery_person = selected_bid.delivery_person
     order.delivery_bid_price = selected_bid.bid_amount
     order.status = "preparing"
     order.save()
 
     return Response({"message": "Delivery assigned", "order_id": order_id}, status=201)
+
+
+# ============================================
+# DELIVERY DASHBOARD ENDPOINTS
+# ============================================
+
+@api_view(["GET"])
+def get_available_orders(request):
+    """Get orders available for delivery bidding."""
+    from .serializers import AvailableOrderSerializer
+
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "delivery":
+        return Response({"error": "Only delivery personnel can access this"}, status=403)
+
+    delivery_person = profile.deliveryperson
+
+    # Get pending orders without assignment
+    available_orders = Order.objects.filter(
+        status="pending"
+    ).exclude(
+        assignment__isnull=False
+    ).order_by('-created_at')
+
+    serializer = AvailableOrderSerializer(
+        available_orders,
+        many=True,
+        context={'delivery_person': delivery_person}
+    )
+
+    return Response({"orders": serializer.data})
+
+
+@api_view(["GET"])
+def get_my_bids(request):
+    """Get delivery person's pending bids."""
+    from .serializers import MyBidSerializer
+
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "delivery":
+        return Response({"error": "Only delivery personnel can access this"}, status=403)
+
+    delivery_person = profile.deliveryperson
+
+    # Get bids where order is still pending (not yet assigned)
+    my_bids = DeliveryBid.objects.filter(
+        delivery_person=delivery_person,
+        order__status="pending"
+    ).exclude(
+        order__assignment__isnull=False
+    ).order_by('-created_at')
+
+    serializer = MyBidSerializer(my_bids, many=True)
+
+    return Response({"bids": serializer.data})
+
+
+@api_view(["GET"])
+def get_my_deliveries(request):
+    """Get delivery person's assigned deliveries."""
+    from .serializers import MyDeliverySerializer
+
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "delivery":
+        return Response({"error": "Only delivery personnel can access this"}, status=403)
+
+    delivery_person = profile.deliveryperson
+
+    # Get active deliveries (preparing or delivering)
+    active = Order.objects.filter(
+        delivery_person=delivery_person,
+        status__in=["preparing", "delivering"]
+    ).order_by('-created_at')
+
+    # Get completed deliveries
+    completed = Order.objects.filter(
+        delivery_person=delivery_person,
+        status="delivered"
+    ).order_by('-created_at')
+
+    return Response({
+        "active": MyDeliverySerializer(active, many=True).data,
+        "completed": MyDeliverySerializer(completed, many=True).data
+    })
+
+
+@api_view(["POST"])
+@csrf_exempt
+def update_delivery_status(request):
+    """Update order status during delivery."""
+    from .serializers import UpdateDeliveryStatusSerializer
+
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "delivery":
+        return Response({"error": "Only delivery personnel can access this"}, status=403)
+
+    serializer = UpdateDeliveryStatusSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    data = serializer.validated_data
+    delivery_person = profile.deliveryperson
+
+    try:
+        order = Order.objects.get(id=data["order_id"])
+    except Order.DoesNotExist:
+        return Response({"error": "Order not found"}, status=404)
+
+    # Verify this delivery person is assigned to the order
+    if order.delivery_person != delivery_person:
+        return Response({"error": "You are not assigned to this order"}, status=403)
+
+    new_status = data["new_status"]
+
+    # Validate status transitions
+    if new_status == "delivering" and order.status != "preparing":
+        return Response({"error": "Can only start delivery for orders being prepared"}, status=400)
+
+    if new_status == "delivered" and order.status != "delivering":
+        return Response({"error": "Can only mark as delivered for orders being delivered"}, status=400)
+
+    order.status = new_status
+    order.save()
+
+    return Response({
+        "message": f"Order status updated to {new_status}",
+        "order_id": order.id,
+        "status": order.status
+    })
+
+
+@api_view(["GET"])
+def get_delivery_stats(request):
+    """Get delivery person's profile stats."""
+    from .serializers import DeliveryStatsSerializer
+
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=401)
+
+    profile = user.userprofile
+    if profile.user_type != "delivery":
+        return Response({"error": "Only delivery personnel can access this"}, status=403)
+
+    delivery_person = profile.deliveryperson
+    serializer = DeliveryStatsSerializer(delivery_person)
+
+    return Response({"stats": serializer.data})
+
 
 @api_view(["POST"])
 def RegisterUser(request):
@@ -1178,33 +1420,48 @@ def process_compliment(request):
 
 @api_view(["POST"])
 def blacklist_user(request):
+    """Blacklist or unblacklist a customer. Action: 'blacklist' or 'unblacklist'"""
     user = request.user
 
     if not user.is_authenticated:
         return Response({"error": "Authentication required"}, status=401)
 
-
     profile = user.userprofile
     if profile.user_type != "manager":
-        return Response({"error": "Only managers can blacklist users"}, status=403)
+        return Response({"error": "Only managers can manage blacklist status"}, status=403)
 
     target_user_id = request.data.get("user_id")
-    if not target_user_id:
-        return Response({"error": "Missing user_id in request"}, status=400)
+    customer_id = request.data.get("customer_id")  # Alternative: use customer profile ID directly
+    action = request.data.get("action", "blacklist")  # Default to blacklist for backwards compatibility
+
+    if not target_user_id and not customer_id:
+        return Response({"error": "Missing user_id or customer_id in request"}, status=400)
 
     try:
-        cust_prof = CustomerProfile.objects.get(user_profile_id=target_user_id)
+        if customer_id:
+            cust_prof = CustomerProfile.objects.get(id=customer_id)
+        else:
+            cust_prof = CustomerProfile.objects.get(user_profile_id=target_user_id)
     except CustomerProfile.DoesNotExist:
         return Response({"error": "Customer profile not found"}, status=404)
 
-    cust_prof.is_blacklisted = True
-    cust_prof.save()
-
-    return Response({
-        "message": "User blacklisted successfully",
-        "user_id": target_user_id,
-        "is_blacklisted": True
-    }, status=200)
+    if action == "unblacklist":
+        cust_prof.is_blacklisted = False
+        cust_prof.warnings_count = 0  # Clear warnings when unblacklisting
+        cust_prof.save()
+        return Response({
+            "message": "User unblacklisted successfully. Warnings have been cleared.",
+            "user_id": target_user_id,
+            "is_blacklisted": False
+        }, status=200)
+    else:
+        cust_prof.is_blacklisted = True
+        cust_prof.save()
+        return Response({
+            "message": "User blacklisted successfully",
+            "user_id": target_user_id,
+            "is_blacklisted": True
+        }, status=200)
 
 
 @api_view(["GET"])

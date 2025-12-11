@@ -230,11 +230,11 @@ export default function Profile() {
                   <p className="text-sm font-semibold mb-2">VIP Progress</p>
                   <progress
                     className="progress progress-warning w-full"
-                    value={Math.min(customerData.total_spent, 100)}
+                    value={Math.min(parseFloat(customerData.vip_progress_spent || 0), 100)}
                     max="100"
                   ></progress>
                   <p className="text-xs opacity-70 mt-1">
-                    ${customerData.total_spent} / $100 spent (or {customerData.order_count}/3 orders)
+                    ${parseFloat(customerData.vip_progress_spent || 0).toFixed(2)} / $100 spent (or {customerData.order_count}/3 orders)
                   </p>
                 </div>
               )}

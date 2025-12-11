@@ -236,12 +236,13 @@ class CustomerListSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source="user_profile.user.email")
     user_type = serializers.CharField(source="user_profile.user_type")
     is_active = serializers.BooleanField(source="user_profile.user.is_active")
+    user_profile_id = serializers.IntegerField(source="user_profile.id")
 
     class Meta:
         model = CustomerProfile
         fields = ["id", "username", "email", "user_type", "deposit_balance",
                   "total_spent", "order_count", "warnings_count",
-                  "is_blacklisted", "is_active"]
+                  "is_blacklisted", "is_active", "user_profile_id"]
 
 
 class RegistrationRequestSerializer(serializers.ModelSerializer):
@@ -280,3 +281,98 @@ class TopChefSerializer(serializers.ModelSerializer):
     class Meta:
         model = Chef
         fields = ["id", "name", "average_rating", "profile_picture", "total_orders"]
+
+
+# ============================================
+# DELIVERY DASHBOARD SERIALIZERS
+# ============================================
+
+class AvailableOrderSerializer(serializers.ModelSerializer):
+    """Orders available for bidding - shows order info + items summary."""
+    items_summary = serializers.SerializerMethodField()
+    customer_name = serializers.CharField(source="customer.user_profile.user.username")
+    my_bid = serializers.SerializerMethodField()
+    created_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M")
+
+    class Meta:
+        model = Order
+        fields = ["id", "customer_name", "items_summary", "delivery_address",
+                  "total_price", "created_at", "my_bid"]
+
+    def get_items_summary(self, obj):
+        return ", ".join([f"{item.quantity}x {item.menu_item.name}" for item in obj.items.all()])
+
+    def get_my_bid(self, obj):
+        delivery_person = self.context.get('delivery_person')
+        if delivery_person:
+            bid = obj.bids.filter(delivery_person=delivery_person).first()
+            return {"id": bid.id, "amount": str(bid.bid_amount)} if bid else None
+        return None
+
+
+class MyBidSerializer(serializers.ModelSerializer):
+    """Delivery person's bids with order details."""
+    order_id = serializers.IntegerField(source="order.id")
+    order_total = serializers.DecimalField(source="order.total_price", max_digits=10, decimal_places=2)
+    delivery_address = serializers.CharField(source="order.delivery_address")
+    items_summary = serializers.SerializerMethodField()
+    order_status = serializers.CharField(source="order.status")
+    created_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M")
+
+    class Meta:
+        model = DeliveryBid
+        fields = ["id", "order_id", "bid_amount", "items_summary", "delivery_address",
+                  "order_total", "order_status", "created_at"]
+
+    def get_items_summary(self, obj):
+        return ", ".join([f"{item.quantity}x {item.menu_item.name}" for item in obj.order.items.all()])
+
+
+class MyDeliverySerializer(serializers.ModelSerializer):
+    """Assigned deliveries for delivery person."""
+    customer_name = serializers.CharField(source="customer.user_profile.user.username")
+    items_summary = serializers.SerializerMethodField()
+    items = serializers.SerializerMethodField()
+    my_rating = serializers.SerializerMethodField()
+    created_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M")
+
+    class Meta:
+        model = Order
+        fields = ["id", "customer_name", "items_summary", "items", "delivery_address",
+                  "total_price", "delivery_bid_price", "status", "created_at", "my_rating"]
+
+    def get_items_summary(self, obj):
+        return ", ".join([f"{item.quantity}x {item.menu_item.name}" for item in obj.items.all()])
+
+    def get_items(self, obj):
+        return [{"name": item.menu_item.name, "quantity": item.quantity} for item in obj.items.all()]
+
+    def get_my_rating(self, obj):
+        rating = obj.delivery_ratings.first()
+        return rating.rating if rating else None
+
+
+class DeliveryStatsSerializer(serializers.ModelSerializer):
+    """Delivery person's profile stats."""
+    username = serializers.CharField(source="user_profile.user.username")
+    email = serializers.EmailField(source="user_profile.user.email")
+    total_deliveries = serializers.SerializerMethodField()
+    active_deliveries = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DeliveryPerson
+        fields = ["id", "username", "email", "salary", "average_rating",
+                  "complaint_count", "compliment_count", "demotion_count",
+                  "eligible_for_bonus", "total_deliveries", "active_deliveries", "hired_at"]
+
+    def get_total_deliveries(self, obj):
+        return Order.objects.filter(delivery_person=obj, status="delivered").count()
+
+    def get_active_deliveries(self, obj):
+        return Order.objects.filter(delivery_person=obj, status__in=["preparing", "delivering"]).count()
+
+
+class UpdateDeliveryStatusSerializer(serializers.Serializer):
+    """Validate delivery status updates."""
+    order_id = serializers.IntegerField()
+    new_status = serializers.ChoiceField(choices=["delivering", "delivered"])

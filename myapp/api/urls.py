@@ -11,7 +11,10 @@ from .views import (
     list_employees, list_customers, get_feedback_targets,
     submit_registration_request, get_registration_requests, process_registration_request,
     close_customer_account, customer_quit, add_kb_entry,
-    search_menu, get_recommendations, get_top_chefs
+    search_menu, get_recommendations, get_top_chefs, get_delivery_persons,
+    # Delivery dashboard endpoints
+    get_available_orders, get_my_bids, get_my_deliveries,
+    update_delivery_status, get_delivery_stats
 )
 
 urlpatterns = [
@@ -62,4 +65,11 @@ urlpatterns = [
     path("recommendations/", get_recommendations, name="recommendations"),
     path("top-chefs/", get_top_chefs, name="top_chefs"),
     path("feedback-targets/", get_feedback_targets, name="feedback_targets"),
+    path("manager/delivery-persons/", get_delivery_persons, name="delivery_persons"),
+    # Delivery dashboard routes
+    path("delivery/available/", get_available_orders, name="available_orders"),
+    path("delivery/my-bids/", get_my_bids, name="my_bids"),
+    path("delivery/my-deliveries/", get_my_deliveries, name="my_deliveries"),
+    path("delivery/update-status/", update_delivery_status, name="update_delivery_status"),
+    path("delivery/stats/", get_delivery_stats, name="delivery_stats"),
 ]

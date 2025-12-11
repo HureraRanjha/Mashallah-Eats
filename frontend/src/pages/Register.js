@@ -1,8 +1,27 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { API_BASE_URL } from "../config";
 
 export default function Register() {
+  const navigate = useNavigate();
+  const { user, getUserType } = useAuth();
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      const userType = getUserType();
+      if (userType === "manager") {
+        navigate("/manager-dashboard");
+      } else if (userType === "chef") {
+        navigate("/chef/menu");
+      } else if (userType === "delivery") {
+        navigate("/delivery/available");
+      } else {
+        navigate("/menu");
+      }
+    }
+  }, [user, getUserType, navigate]);
   const [username, setUsername] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");

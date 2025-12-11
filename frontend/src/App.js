@@ -23,6 +23,7 @@ import DiscussionBoard from './pages/DiscussionBoard';
 import DiscussionPost from './pages/DiscussionPost';
 import NewPost from './pages/NewPost';
 import ManagerDashboard from './pages/ManagerDashboard';
+import DeliveryDashboard from './pages/DeliveryDashboard';
 
 function App() {
   return (
@@ -99,10 +100,15 @@ function App() {
               </ProtectedRoute>
             } />
 
-            {/* Delivery routes (placeholder for future) */}
+            {/* Delivery routes */}
+            <Route path="/delivery" element={
+              <ProtectedRoute allowedRoles={['delivery']}>
+                <DeliveryDashboard />
+              </ProtectedRoute>
+            } />
             <Route path="/delivery/:section" element={
               <ProtectedRoute allowedRoles={['delivery']}>
-                <div className="text-center py-8">Delivery Dashboard - Coming Soon</div>
+                <DeliveryDashboard />
               </ProtectedRoute>
             } />
           </Routes>

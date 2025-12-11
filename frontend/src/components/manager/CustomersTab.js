@@ -37,6 +37,37 @@ export default function CustomersTab({ customers, onRefresh, onMessage }) {
     }
   };
 
+  const handleToggleBlacklist = async (customerId, currentlyBlacklisted) => {
+    const action = currentlyBlacklisted ? "unblacklist" : "blacklist";
+
+    setActionLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/blacklist/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          customer_id: customerId,
+          action: action,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        onMessage("success", data.message);
+        onRefresh();
+      } else {
+        onMessage("error", data.error || `Failed to ${action} user`);
+      }
+    } catch (error) {
+      onMessage("error", "Server error");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <h3 className="text-xl font-bold">Customer Management</h3>
@@ -87,15 +118,34 @@ export default function CustomersTab({ customers, onRefresh, onMessage }) {
                     )}
                   </td>
                   <td>
-                    {!customer.is_blacklisted && (
-                      <button
-                        className="btn btn-error btn-sm"
-                        onClick={() => handleCloseAccount(customer.id)}
-                        disabled={actionLoading}
-                      >
-                        Close Account
-                      </button>
-                    )}
+                    <div className="flex gap-2">
+                      {customer.is_blacklisted ? (
+                        <button
+                          className="btn btn-success btn-sm"
+                          onClick={() => handleToggleBlacklist(customer.id, true)}
+                          disabled={actionLoading}
+                        >
+                          Unblacklist
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            className="btn btn-warning btn-sm"
+                            onClick={() => handleToggleBlacklist(customer.id, false)}
+                            disabled={actionLoading}
+                          >
+                            Blacklist
+                          </button>
+                          <button
+                            className="btn btn-error btn-sm"
+                            onClick={() => handleCloseAccount(customer.id)}
+                            disabled={actionLoading}
+                          >
+                            Close
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

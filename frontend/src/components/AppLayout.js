@@ -18,12 +18,12 @@ export default function AppLayout({ children }) {
   const isCustomer = userType === 'registered' || userType === 'vip';
   const maxWarnings = userType === 'vip' ? 2 : 3;
 
-  // Fetch customer data (warnings & balance)
+  // Fetch customer data (warnings & balance) - re-fetch when user changes
   useEffect(() => {
     if (isCustomer) {
       fetchCustomerData();
     }
-  }, [isCustomer]);
+  }, [isCustomer, user]);
 
   const fetchCustomerData = async () => {
     try {

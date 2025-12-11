@@ -79,6 +79,9 @@ class CustomerProfile(models.Model):
             if (self.vip_progress_spent >= 100 or self.order_count >= 3) and not self.is_blacklisted and self.warnings_count < 3 and not has_pending_complaints:
                 self.user_profile.user_type = 'vip'
                 self.user_profile.save()
+                # Clear warnings on VIP upgrade
+                self.warnings_count = 0
+                self.save()
                 return True
         return False
 
