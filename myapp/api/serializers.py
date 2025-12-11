@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import MenuItem, DiscussionTopic, DiscussionPost, Order, OrderItem, FoodRating, DeliveryBid, DeliveryAssignment, DeliveryRating, Complaint, Compliment, UserProfile, CustomerProfile, Chef, DeliveryPerson
+from .models import MenuItem, DiscussionTopic, DiscussionPost, Order, OrderItem, FoodRating, DeliveryBid, DeliveryAssignment, DeliveryRating, Complaint, Compliment, UserProfile, CustomerProfile, Chef, DeliveryPerson, RegistrationRequest
 
 
 class MenuItemSerializer(serializers.ModelSerializer):
@@ -153,3 +153,90 @@ class UserProfileSerializer(serializers.ModelSerializer):
             except DeliveryPerson.DoesNotExist:
                 return None
         return None
+
+class HireEmployeeSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    employee_type = serializers.ChoiceField(choices=["chef", "delivery"])
+    salary = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+
+class FireEmployeeSerializer(serializers.Serializer):
+    employee_id = serializers.IntegerField()
+    employee_type = serializers.ChoiceField(choices=["chef", "delivery"])
+
+
+class UpdateSalarySerializer(serializers.Serializer):
+    employee_id = serializers.IntegerField()
+    employee_type = serializers.ChoiceField(choices=["chef", "delivery"])
+    action = serializers.ChoiceField(choices=["raise", "cut"])
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    is_percentage = serializers.BooleanField(default=False)
+
+
+class AwardBonusSerializer(serializers.Serializer):
+    employee_id = serializers.IntegerField()
+    employee_type = serializers.ChoiceField(choices=["chef", "delivery"])
+    bonus_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    reason = serializers.CharField(required=False, allow_blank=True)
+
+
+class ChefListSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user_profile.user.username")
+    email = serializers.EmailField(source="user_profile.user.email")
+    menu_items_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Chef
+        fields = ["id", "username", "email", "salary", "average_rating",
+                  "complaint_count", "compliment_count", "demotion_count",
+                  "hired_at", "menu_items_count"]
+
+    def get_menu_items_count(self, obj):
+        return obj.menu_items.count()
+
+
+class DeliveryPersonListSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user_profile.user.username")
+    email = serializers.EmailField(source="user_profile.user.email")
+    deliveries_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DeliveryPerson
+        fields = ["id", "username", "email", "salary", "average_rating",
+                  "complaint_count", "compliment_count", "demotion_count",
+                  "hired_at", "deliveries_count"]
+
+    def get_deliveries_count(self, obj):
+        return obj.deliveries.count()
+
+
+class CustomerListSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user_profile.user.username")
+    email = serializers.EmailField(source="user_profile.user.email")
+    user_type = serializers.CharField(source="user_profile.user_type")
+    is_active = serializers.BooleanField(source="user_profile.user.is_active")
+
+    class Meta:
+        model = CustomerProfile
+        fields = ["id", "username", "email", "user_type", "deposit_balance",
+                  "total_spent", "order_count", "warnings_count",
+                  "is_blacklisted", "is_active"]
+
+
+class RegistrationRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RegistrationRequest
+        fields = ["id", "email", "name", "status", "created_at"]
+
+
+class ProcessRegistrationSerializer(serializers.Serializer):
+    request_id = serializers.IntegerField()
+    decision = serializers.ChoiceField(choices=["approved", "rejected"])
+    password = serializers.CharField(required=False, allow_blank=True)
+
+
+class CloseAccountSerializer(serializers.Serializer):
+    customer_id = serializers.IntegerField()
+    reason = serializers.ChoiceField(choices=["kicked", "quit"], required=False)
