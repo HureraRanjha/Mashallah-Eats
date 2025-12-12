@@ -19,7 +19,7 @@ export default function Menu() {
   const [addedToCart, setAddedToCart] = useState(null);
 
   const userType = getUserType();
-  const isVip = userType === "vip";
+  const canSeeVipDishes = userType === "vip" || userType === "manager" || userType === "chef";
   const canOrder = userType === "registered" || userType === "vip";
 
   useEffect(() => {
@@ -29,12 +29,12 @@ export default function Menu() {
   }, []);
 
   useEffect(() => {
-    // Filter dishes: hide VIP exclusive dishes for non-VIP users
+    // Filter dishes: hide VIP exclusive dishes for non-VIP/non-manager users
     if (!searchQuery.trim()) {
-      const filtered = dishes.filter(dish => !dish.is_vip_exclusive || isVip);
+      const filtered = dishes.filter(dish => !dish.is_vip_exclusive || canSeeVipDishes);
       setFilteredDishes(filtered);
     }
-  }, [dishes, searchQuery, isVip]);
+  }, [dishes, searchQuery, canSeeVipDishes]);
 
   const fetchDishes = async () => {
     try {
@@ -80,7 +80,7 @@ export default function Menu() {
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchQuery.trim()) {
-      const filtered = dishes.filter(dish => !dish.is_vip_exclusive || isVip);
+      const filtered = dishes.filter(dish => !dish.is_vip_exclusive || canSeeVipDishes);
       setFilteredDishes(filtered);
       return;
     }
@@ -92,8 +92,8 @@ export default function Menu() {
       });
       const data = await response.json();
       if (response.ok) {
-        // Filter VIP exclusive dishes for non-VIP users
-        const results = (data.results || []).filter(dish => !dish.is_vip_exclusive || isVip);
+        // Filter VIP exclusive dishes for non-VIP/non-manager users
+        const results = (data.results || []).filter(dish => !dish.is_vip_exclusive || canSeeVipDishes);
         setFilteredDishes(results);
       }
     } catch (error) {
@@ -105,7 +105,7 @@ export default function Menu() {
 
   const clearSearch = () => {
     setSearchQuery("");
-    const filtered = dishes.filter(dish => !dish.is_vip_exclusive || isVip);
+    const filtered = dishes.filter(dish => !dish.is_vip_exclusive || canSeeVipDishes);
     setFilteredDishes(filtered);
   };
 

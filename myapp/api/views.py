@@ -81,7 +81,8 @@ def DishListView(request):
     items = MenuItem.objects.all()
     non_vip_items = MenuItem.objects.filter(is_vip_exclusive=False)
 
-    if profile and profile.user_type == "vip":
+    # VIP customers, managers, and chefs can see all dishes
+    if profile and profile.user_type in ["vip", "manager", "chef"]:
         serializer = MenuItemSerializer(items, many=True)
     else:
         serializer = MenuItemSerializer(non_vip_items, many=True)
@@ -1548,10 +1549,11 @@ def chat_with_ai(request):
         for keyword in keywords:
             q_filter |= Q(question__icontains=keyword) | Q(answer__icontains=keyword)
 
-        # Get all matching entries that aren't removed
+        # Get all matching entries that aren't removed (prioritize employee-authored entries)
         matching_entries = KnowledgeBaseEntry.objects.filter(
             q_filter,
-            is_removed=False
+            is_removed=False,
+            author_type='employee'  # Only match employee-authored KB entries, not cached LLM responses
         )
 
         # Score each entry by how many keywords it matches
@@ -1587,7 +1589,7 @@ def chat_with_ai(request):
             "message": "Please rate this answer"
         })
 
-    # Step 2: No KB match - delegate to LLM
+    # Step 2: No KB match - delegate to LLM with KB context (RAG)
     ollama_host = os.getenv("OLLAMA_HOST")
     ollama_key = os.getenv("OLLAMA_API_KEY")
 
@@ -1597,7 +1599,53 @@ def chat_with_ai(request):
             headers={'Authorization': f'Bearer {ollama_key}'}
         )
 
+        # Build knowledge context from all KB entries
+        kb_entries = KnowledgeBaseEntry.objects.filter(is_removed=False).order_by('-rating_sum')[:50]
+        kb_context = ""
+        if kb_entries:
+            kb_context = "\n\nKnowledge Base (use this information to answer questions):\n"
+            for entry in kb_entries:
+                kb_context += f"Q: {entry.question}\nA: {entry.answer}\n\n"
+
+        # Get menu items for context
+        menu_items = MenuItem.objects.all()[:20]
+        menu_context = ""
+        if menu_items:
+            menu_context = "\n\nOur Menu Items:\n"
+            for item in menu_items:
+                vip_tag = " (VIP Exclusive)" if item.is_vip_exclusive else ""
+                menu_context += f"- {item.name}: ${item.price}{vip_tag} - {item.description[:100] if item.description else 'No description'}\n"
+
+        # Get chef info
+        chefs = Chef.objects.all()
+        chef_context = ""
+        if chefs:
+            chef_context = "\n\nOur Chefs:\n"
+            for chef in chefs:
+                chef_context += f"- {chef.user_profile.user.username} (Rating: {chef.average_rating or 'N/A'})\n"
+
+        system_prompt = f"""You are a helpful customer service assistant for Mashallah Eats, an online Middle Eastern restaurant ordering and delivery system.
+
+About Mashallah Eats:
+- We offer authentic Middle Eastern dishes prepared by our talented chefs
+- Customers can browse menus, place orders, and get food delivered
+- Registered customers can rate food and delivery quality (1-5 stars)
+- VIP status is earned after spending $100 or making 3 orders
+- VIP members get 5% discount, access to exclusive dishes, and 1 free delivery per 3 orders
+- Customers can file complaints or compliments about chefs and delivery personnel
+- We have a discussion forum where customers can discuss chefs, dishes, and delivery experiences
+
+Our Menu:
+- Beef Shawarma Wrap - $9.49: Thin-sliced spiced beef wrapped in warm pita with tahini sauce.
+- Mixed Grill Platter - $18.99 (VIP Only): Skewers of chicken, kofta, and lamb served with rice and grilled vegetables.
+- Lamb Kabsa - $15.99: Traditional Gulf rice dish cooked with tender lamb, tomatoes, and warm spices.
+- Maqluba - $14.99 (VIP Only): Layered rice dish with chicken, eggplant, and cauliflower flipped before serving.
+- Chicken Shawarma Plate - $12.99: Marinated chicken roasted on a vertical spit, served with rice, garlic sauce, and salad.
+{kb_context}{menu_context}{chef_context}
+Use the above information to answer questions accurately. Keep responses helpful, concise, and friendly. If you don't know specific details, suggest the customer contact the manager."""
+
         response = client.chat(model='gpt-oss:20b', messages=[
+            {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': user_message}
         ])
 
